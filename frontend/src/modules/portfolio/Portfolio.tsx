@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { TrendingUp, TrendingDown, Plus, Briefcase, Target, ShieldAlert, Trophy } from 'lucide-react'
+import { TrendingUp, TrendingDown, Plus, Briefcase, ShieldAlert, Trophy } from 'lucide-react'
 
 interface Position {
   id: number; symbol: string; direction: 'Long' | 'Short';

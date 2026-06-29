@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { TrendingUp, TrendingDown, ArrowUpDown, Search, BarChart3, Globe } from 'lucide-react'
+import { TrendingUp, TrendingDown, ArrowUpDown, Search, Globe } from 'lucide-react'
 import { api } from '../../lib/api'
 
 type Tab = 'Forex' | 'IDX' | 'US' | 'Crypto'
@@ -143,7 +143,7 @@ export default function Market() {
             {isLoading && activeTab === 'IDX' ? (
               <tr><td colSpan={5}><TableSkeleton /></td></tr>
             ) : (
-              data.map((row, i) => (
+              data.map((row) => (
                 <tr key={row.symbol} className="table-row-hover cursor-pointer border-b border-border/10 last:border-0">
                   <td className="px-5 py-3">
                     <span className="font-mono font-semibold text-[13px]">{row.symbol}</span>

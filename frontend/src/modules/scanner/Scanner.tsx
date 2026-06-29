@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Search, Filter, TrendingUp, TrendingDown, ChevronDown, ChevronUp, BarChart3, Activity } from 'lucide-react'
+import { Search, Filter, TrendingUp, TrendingDown, ChevronDown, ChevronUp, Activity } from 'lucide-react'
 
 const FILTERS = [
   'Market Cap >1T', 'Volume >1M', 'RSI 30-70', 'MACD Signal',

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Crosshair, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, Minus, Shield, Target, Clock } from 'lucide-react'
+import { Crosshair, TrendingUp, TrendingDown, AlertTriangle, Minus, Shield, Target, Clock } from 'lucide-react'
 import { api } from '../../lib/api'
 
 type SMCLevel = {

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Activity } from 'lucide-react'
+import { DollarSign, AlertTriangle, Activity } from 'lucide-react'
 import { api } from '../../lib/api'
 
 type RatesResponse = {
