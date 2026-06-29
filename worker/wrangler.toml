@@ -1,0 +1,12 @@
+name = "aegis-terminal-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aegis-terminal-db"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+[[kv_namespaces]]
+binding = "AEGIS_CACHE"
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
