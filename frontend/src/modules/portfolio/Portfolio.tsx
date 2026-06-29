@@ -23,14 +23,14 @@ function calcPnL(p: Position) {
 const summaryStats = [
   { label: 'Total P&L', value: '+Rp 1,245,000', color: 'up' },
   { label: 'Win Rate', value: '72%', color: 'gold' },
-  { label: 'Open Positions', value: '3', color: '' },
+  { label: 'Posisi Terbuka', value: '3', color: '' },
   { label: 'Max Drawdown', value: '-4.2%', color: 'dn' },
 ]
 
 export default function Portfolio() {
-  const [filter, setFilter] = useState<'All' | 'Open' | 'Closed'>('All')
+  const [filter, setFilter] = useState<'Semua' | 'Terbuka' | 'Tertutup'>('Semua')
 
-  const filtered = filter === 'All' ? MOCK_POSITIONS : MOCK_POSITIONS.filter(p => p.status === filter)
+  const filtered = filter === 'Semua' ? MOCK_POSITIONS : MOCK_POSITIONS.filter(p => filter === 'Terbuka' ? p.status === 'Open' : p.status === 'Closed')
   const openCount = MOCK_POSITIONS.filter(p => p.status === 'Open').length
   const closedCount = MOCK_POSITIONS.filter(p => p.status === 'Closed').length
 
@@ -59,14 +59,14 @@ export default function Portfolio() {
 
       {/* Filter Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
-        {(['All', 'Open', 'Closed'] as const).map(tab => (
+        {(['Semua', 'Terbuka', 'Tertutup'] as const).map(tab => (
           <button
             key={tab}
             className={`kt-tag ${filter === tab ? 'gold' : ''}`}
             onClick={() => setFilter(tab)}
             style={{ cursor: 'pointer' }}
           >
-            {tab} {tab === 'Open' ? `(${openCount})` : tab === 'Closed' ? `(${closedCount})` : ''}
+            {tab} {tab === 'Terbuka' ? `(${openCount})` : tab === 'Tertutup' ? `(${closedCount})` : ''}
           </button>
         ))}
       </div>
@@ -76,10 +76,10 @@ export default function Portfolio() {
         <table className="kt-table">
           <thead>
             <tr>
-              <th>Symbol</th>
-              <th>Direction</th>
+              <th>Simbol</th>
+              <th>Arah</th>
               <th>Entry</th>
-              <th>Current</th>
+              <th>Saat Ini</th>
               <th>P&L</th>
               <th>SL</th>
               <th>TP</th>

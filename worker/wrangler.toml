@@ -12,7 +12,7 @@ binding = "AEGIS_CACHE"
 id = "6d859a36bc874db0b11406faed02034e"
 
 [vars]
-GROQ_API_KEY = ""
+# GROQ_API_KEY set as secret — use `wrangler secret put GROQ_API_KEY`
 
 [triggers]
 crons = ["*/5 * * * *"]  # Every 5 minutes — pre-warm market cache

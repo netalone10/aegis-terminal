@@ -66,7 +66,7 @@ async function getForexData(symbol: string, market: string = 'cfd', tf?: string)
 }
 
 // Get multi-timeframe data (daily + weekly context) for structure analysis
-async function getMultiTFData(symbol: string, market: string, tf?: string): Promise<any> {
+export async function getMultiTFData(symbol: string, market: string, tf?: string): Promise<any> {
   const effectiveTf = tf || '1D';
   const [tfData, weekData] = await Promise.all([
     tvScan({
@@ -116,7 +116,7 @@ async function getMultiTFData(symbol: string, market: string, tf?: string): Prom
 }
 
 // SMC Analysis Engine
-function analyzeSMC(data: any): any {
+export function analyzeSMC(data: any): any {
   if (!data) return null;
 
   const { close, open, high, low, atr, ema20, ema50, sma200, rsi,
@@ -375,6 +375,151 @@ smcRoutes.get('/analyze/:symbol', async (c) => {
   }
 });
 
+// Grade a single SMC analysis result (0-100 score → letter grade)
+function gradeSMCSetup(analysis: any, tf: string): { score: number; grade: string; gradeLabel: string; entryReason: string; rr: number | null } {
+  if (!analysis || analysis.bias === 'neutral') {
+    return { score: 20, grade: 'D', gradeLabel: 'Avoid — No Bias', entryReason: 'No clear directional bias detected', rr: null };
+  }
+
+  let score = 0;
+  const reasons: string[] = [];
+  const { bias, confidence, premiumDiscount, killZone, bullScore, bearScore, signals, tradeSetup, structure, meta } = analysis;
+  const dominantScore = Math.max(bullScore, bearScore);
+
+  // 1. Bias strength (0-25)
+  if (dominantScore >= 8) { score += 25; reasons.push('Strong directional bias'); }
+  else if (dominantScore >= 6) { score += 20; reasons.push('Solid bias'); }
+  else if (dominantScore >= 4) { score += 14; reasons.push('Moderate bias'); }
+  else { score += 8; reasons.push('Weak bias'); }
+
+  // 2. Confidence (0-15)
+  if (confidence >= 75) { score += 15; }
+  else if (confidence >= 60) { score += 11; }
+  else if (confidence >= 45) { score += 7; }
+  else { score += 3; }
+
+  // 3. Premium/Discount zone alignment (0-15)
+  const alignedZone = (bias === 'bullish' && premiumDiscount === 'discount') || (bias === 'bearish' && premiumDiscount === 'premium');
+  if (alignedZone) { score += 15; reasons.push(`Price in ${premiumDiscount} zone — favorable for ${bias}`); }
+  else { score += 4; }
+
+  // 4. Kill Zone (0-10)
+  if (killZone !== 'none') { score += 10; reasons.push(`Kill Zone active: ${killZone.replace('_', ' ').toUpperCase()}`); }
+  else { score += 3; }
+
+  // 5. RSI confirmation (0-15)
+  const rsi = meta?.rsi;
+  if (rsi !== undefined && rsi !== null) {
+    if ((bias === 'bullish' && rsi < 35) || (bias === 'bearish' && rsi > 65)) {
+      score += 15; reasons.push(`RSI ${rsi.toFixed(0)} confirming ${bias} reversal zone`);
+    } else if ((bias === 'bullish' && rsi < 50) || (bias === 'bearish' && rsi > 50)) {
+      score += 10;
+    } else {
+      score += 4;
+    }
+  }
+
+  // 6. Risk:Reward quality (0-10)
+  const rr = tradeSetup?.rr1 ?? null;
+  if (rr !== null) {
+    if (rr >= 2) { score += 10; reasons.push(`R:R ${rr.toFixed(1)} — excellent`); }
+    else if (rr >= 1.5) { score += 7; reasons.push(`R:R ${rr.toFixed(1)} — good`); }
+    else if (rr >= 1) { score += 5; }
+    else { score += 2; }
+  }
+
+  // 7. Structure alignment (0-10)
+  if (structure?.emaBias === bias) { score += 5; reasons.push('EMA structure aligned'); }
+  if (structure?.longTermBias === bias) { score += 5; reasons.push('Long-term trend aligned'); }
+
+  // Clamp
+  score = Math.min(100, Math.max(0, score));
+
+  // Grade
+  let grade: string, gradeLabel: string;
+  if (score >= 90) { grade = 'A+'; gradeLabel = 'Excellent — High Confluence'; }
+  else if (score >= 75) { grade = 'A'; gradeLabel = 'Strong — Good Confluence'; }
+  else if (score >= 60) { grade = 'B'; gradeLabel = 'Moderate — Some Alignment'; }
+  else if (score >= 45) { grade = 'C'; gradeLabel = 'Weak — Conflicting Signals'; }
+  else { grade = 'D'; gradeLabel = 'Avoid — No Clear Setup'; }
+
+  // Prefer first signal as entry reason, fallback to top reason
+  const entryReason = reasons[0] ?? (signals?.[0] ?? 'No specific reason');
+
+  return { score, grade, gradeLabel, entryReason, rr };
+}
+
+// GET /api/smc/screener — Scan all pairs × all timeframes, grade setups
+smcRoutes.get('/screener', async (c) => {
+  const cache = new Cache(c.env.AEGIS_CACHE, 120);
+
+  try {
+    const data = await cache.getOrSet('smc:screener:all', async () => {
+      const symbols = [
+        { name: 'XAUUSD', label: 'XAU/USD', market: 'cfd' },
+        { name: 'EURUSD', label: 'EUR/USD', market: 'forex' },
+        { name: 'GBPUSD', label: 'GBP/USD', market: 'forex' },
+        { name: 'USDJPY', label: 'USD/JPY', market: 'forex' },
+        { name: 'USDIDR', label: 'USD/IDR', market: 'forex' },
+        { name: 'USDCHF', label: 'USD/CHF', market: 'forex' },
+      ];
+      const timeframes = ['1D', '4H', '1H'];
+
+      // Build all combos
+      const combos: Array<{ symbol: typeof symbols[0]; tf: string }> = [];
+      for (const s of symbols) for (const tf of timeframes) combos.push({ symbol: s, tf });
+
+      const results = await Promise.all(
+        combos.map(async ({ symbol, tf }) => {
+          try {
+            const rawData = await getMultiTFData(symbol.name, symbol.market, tf);
+            if (!rawData) return null;
+            const analysis = analyzeSMC(rawData);
+            if (!analysis) return null;
+
+            const { score, grade, gradeLabel, entryReason, rr } = gradeSMCSetup(analysis, tf);
+
+            return {
+              symbol: symbol.label,
+              tf,
+              bias: analysis.bias,
+              confidence: analysis.confidence,
+              grade,
+              gradeLabel,
+              score,
+              entryReason,
+              rr,
+              premiumDiscount: analysis.premiumDiscount,
+              killZone: analysis.killZone,
+              signals: analysis.signals,
+              keyLevels: analysis.levels?.slice(0, 5) ?? [],
+              tradeSetup: analysis.tradeSetup,
+              structure: analysis.structure,
+              meta: analysis.meta,
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      const valid = results.filter(Boolean) as any[];
+      valid.sort((a, b) => b.score - a.score);
+
+      return {
+        results: valid,
+        best_setup: valid[0] ?? null,
+        scanned_at: new Date().toISOString(),
+        total_scanned: combos.length,
+      };
+    }, { ttl: 120 });
+
+    return c.json({ status: 'ok', data });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 502);
+  }
+});
+
 // GET /api/smc/batch — SMC analysis for multiple pairs (optional ?tf=1D|4H|1H)
 smcRoutes.get('/batch', async (c) => {
   const tf = c.req.query('tf') || '1D';
@@ -407,6 +552,78 @@ smcRoutes.get('/batch', async (c) => {
     }, { ttl: 120 });
 
     return c.json({ status: 'ok', data, tf });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 502);
+  }
+});
+
+// GET /api/smc/confluence — multi-timeframe confluence matrix for all pairs
+smcRoutes.get('/confluence', async (c) => {
+  const cache = new Cache(c.env.AEGIS_CACHE, 120);
+
+  try {
+    const data = await cache.getOrSet('smc:confluence', async () => {
+      const symbols = [
+        { name: 'XAUUSD', label: 'XAU/USD', market: 'cfd' },
+        { name: 'EURUSD', label: 'EUR/USD', market: 'forex' },
+        { name: 'GBPUSD', label: 'GBP/USD', market: 'forex' },
+        { name: 'USDJPY', label: 'USD/JPY', market: 'forex' },
+        { name: 'USDIDR', label: 'USD/IDR', market: 'forex' },
+        { name: 'USDCHF', label: 'USD/CHF', market: 'forex' },
+      ];
+
+      const pairs = await Promise.all(
+        symbols.map(async (s) => {
+          try {
+            const [dailyRaw, h4Raw, h1Raw] = await Promise.all([
+              getMultiTFData(s.name, s.market, '1D'),
+              getMultiTFData(s.name, s.market, '4H'),
+              getMultiTFData(s.name, s.market, '1H'),
+            ]);
+
+            const daily = dailyRaw ? analyzeSMC(dailyRaw) : null;
+            const h4 = h4Raw ? analyzeSMC(h4Raw) : null;
+            const h1 = h1Raw ? analyzeSMC(h1Raw) : null;
+
+            if (!daily || !h4 || !h1) return null;
+
+            const biases = [daily.bias, h4.bias, h1.bias];
+            const biasCounts: Record<string, number> = {};
+            biases.forEach((b: string) => { biasCounts[b] = (biasCounts[b] || 0) + 1; });
+            const maxCount = Math.max(...Object.values(biasCounts));
+
+            let score = 0;
+            let alignment: 'strong' | 'partial' | 'conflict' = 'conflict';
+            if (maxCount === 3) { score = 100; alignment = 'strong'; }
+            else if (maxCount === 2) { score = 70; alignment = 'partial'; }
+            else { score = 0; alignment = 'conflict'; }
+
+            const biasVal = (b: string) => b === 'bullish' ? 1 : b === 'bearish' ? -1 : 0;
+            const weighted = biasVal(daily.bias) * 0.5 + biasVal(h4.bias) * 0.3 + biasVal(h1.bias) * 0.2;
+            const weightedBias = weighted > 0.1 ? 'bullish' : weighted < -0.1 ? 'bearish' : 'neutral';
+
+            const allSignals = [...(h1.signals || []), ...(h4.signals || []), ...(daily.signals || [])];
+            const signals = [...new Set(allSignals)].slice(0, 5);
+
+            const pick = (r: any) => ({ bias: r.bias, confidence: r.confidence, bullScore: r.bullScore, bearScore: r.bearScore });
+
+            return {
+              symbol: s.label,
+              daily: pick(daily),
+              h4: pick(h4),
+              h1: pick(h1),
+              confluence: { score, alignment, weightedBias, signals },
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      return pairs.filter(Boolean);
+    }, { ttl: 120 });
+
+    return c.json({ status: 'ok', data });
   } catch (e: any) {
     return c.json({ error: e.message }, 502);
   }

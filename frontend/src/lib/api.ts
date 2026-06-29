@@ -1,4 +1,4 @@
-const API_BASE = 'https://aegisterminal.app';
+const API_BASE = 'https://aegis-terminal-api.akbar-rm10.workers.dev';
 
 export async function api<T = any>(path: string, options?: RequestInit): Promise<T> {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;

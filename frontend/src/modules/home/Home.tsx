@@ -62,7 +62,7 @@ export default function Home() {
             Aegis Terminal menggabungkan live market data, SMC/ICT analysis, macro regime, dan workflow trading dalam satu workspace ringan untuk forex dan XAU/USD.
           </p>
           <div className="kt-hero-actions">
-            <NavLink className="kt-btn kt-btn-primary" to="/decision">Buka SMC Engine</NavLink>
+            <NavLink className="kt-btn kt-btn-primary" to="/decision">Buka Mesin SMC</NavLink>
             <NavLink className="kt-btn" to="/market">Lihat Market</NavLink>
             <NavLink className="kt-btn" to="/macro">Macro Regime</NavLink>
           </div>
@@ -121,7 +121,7 @@ export default function Home() {
       <section className="kt-section">
         <div className="kt-section-head">
           <div>
-            <h2>Daily Research.</h2>
+            <h2>Riset Harian.</h2>
             <p>Bias utama dan headline context sesi berjalan.</p>
           </div>
           <span className="kt-pill">Auto Refresh</span>

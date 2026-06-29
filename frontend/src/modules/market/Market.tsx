@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { api } from '../../lib/api'
+import DataBadge from '../../components/DataBadge'
 
 const PAIRS = [
   { symbol: 'XAU/USD', name: 'Gold' },
@@ -28,13 +29,12 @@ export default function Market() {
     <div>
       <div className="kt-route-head">
         <div>
-          <div className="kt-kicker">Live Market</div>
-          <h1>Market Overview</h1>
-          <p>Key forex pairs with live pricing</p>
+          <div className="kt-kicker">Market Live</div>
+          <h1>Ringkasan Market</h1>
+          <p>Pasangan forex utama dengan harga live</p>
         </div>
         <div className="kt-route-actions">
-          <span className="kt-status-dot" />
-          <span>{isLoading ? 'Loading...' : `${pairs.length || PAIRS.length} pairs`}</span>
+          <DataBadge source="Yahoo Finance" />
         </div>
       </div>
 

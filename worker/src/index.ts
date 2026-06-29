@@ -10,6 +10,11 @@ import { journalRoutes } from './routes/journal';
 import { newsRoutes } from './routes/news';
 import { forexRoutes } from './routes/forex';
 import { smcRoutes } from './routes/smc';
+import { calendarRoutes } from './routes/calendar';
+import { tradeRoutes } from './routes/trade';
+import { planRoutes } from './routes/plan';
+import { sentimentRoutes } from './routes/sentiment';
+import { backtestRoutes } from './routes/backtest';
 import { Cache } from './cache';
 
 export type Bindings = {
@@ -33,6 +38,11 @@ app.route('/api/journal', journalRoutes);
 app.route('/api/news', newsRoutes);
 app.route('/api/forex', forexRoutes);
 app.route('/api/smc', smcRoutes);
+app.route('/api/calendar', calendarRoutes);
+app.route('/api/trades', tradeRoutes);
+app.route('/api/plan', planRoutes);
+app.route('/api/sentiment', sentimentRoutes);
+app.route('/api/backtest', backtestRoutes);
 
 app.get('/', (c) => c.json({ status: 'ok', service: 'aegis-terminal-api', version: '1.1.0' }));
 

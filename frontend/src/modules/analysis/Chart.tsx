@@ -25,7 +25,7 @@ export default function Chart() {
     <div>
       <div className="kt-route-head">
         <div>
-          <div className="kt-kicker">Chart Lab</div>
+          <div className="kt-kicker">Lab Chart</div>
           <h1>Chart</h1>
           <p>Charting workspace untuk validasi struktur, level, dan execution zone</p>
         </div>

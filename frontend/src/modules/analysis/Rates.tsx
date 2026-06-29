@@ -43,9 +43,9 @@ export default function Rates() {
     <div>
       <div className="kt-route-head">
         <div>
-          <div className="kt-kicker">Rates & Bonds</div>
+          <div className="kt-kicker">Rate & Obligasi</div>
           <h1>US Treasury Yields</h1>
-          <p>Yield curve shape and rate context for gold / USD positioning</p>
+          <p>Bentuk kurva yield dan konteks rate untuk posisi emas / USD</p>
         </div>
         <div className="kt-route-actions">
           <span className="kt-status-dot" />

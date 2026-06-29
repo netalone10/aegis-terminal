@@ -55,8 +55,8 @@ forexRoutes.get('/live', async (c) => {
   try {
     const data = await cache.getOrSet('forex:live:v3', async () => {
       // Parallel: scan all pairs + gold
-      const symbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDIDR', 'AUDUSD', 'USDCAD', 'NZDUSD'];
-      const markets = ['cfd', 'forex', 'forex', 'forex', 'forex', 'forex', 'forex', 'forex'];
+      const symbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDIDR', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCHF'];
+      const markets = ['cfd', 'forex', 'forex', 'forex', 'forex', 'forex', 'forex', 'forex', 'forex'];
       const results = await Promise.all(
         symbols.map((s, i) => scanOne(s, markets[i]).catch(() => null))
       );

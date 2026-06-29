@@ -1,76 +1,96 @@
-import { useState } from 'react'
-import { Send, Sparkles, User, Bot, Loader2 } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Send, Sparkles, User, Bot } from 'lucide-react'
 
 interface Message { id: number; role: 'user' | 'assistant'; content: string }
 
-const MOCK_MESSAGES: Message[] = [
-  {
-    id: 1, role: 'user',
-    content: 'Analyze BBCA for me — technical setup, fundamentals, and any signals I should watch.',
-  },
-  {
-    id: 2, role: 'assistant',
-    content: `**BBCA.JK — Bank Central Asia Analysis**
+const WELCOME_MSG: Message = {
+  id: 1,
+  role: 'assistant',
+  content: 'Welcome to Aegis AI. I have live market context — ask me about setups, structure, risk, or any pair.',
+}
 
-**Technical Setup**
-• Price: 9,850 (+1.24% today)
-• Trading above SMA20 (9,720) and SMA50 (9,580) — bullish alignment
-• RSI at 58 — neutral-bullish, room to run before overbought
-• MACD: signal line crossover 3 days ago, histogram expanding
-• Volume: 1.8x 20-day average — institutional participation confirmed
-• Bollinger Bands: price near upper band, watch for squeeze breakout
-
-**Key Levels**
-• Support: 9,650 (prior breakout), 9,400 (SMA50)
-• Resistance: 10,000 (psychological), 10,200 (measured move target)
-
-**Fundamentals**
-• P/E: 22.4x (sector avg 18x) — premium justified by ROE 24.1%
-• Revenue Growth: +12.3% YoY
-• D/E: 0.8x — conservative leverage
-
-**Signals to Watch**
-• Golden cross forming (SMA20 crossing SMA50) — confirmation at 9,780
-• Foreign net buy +Rp 280B last 5 days — accumulation pattern
-• Earnings in 2 weeks — potential catalyst
-
-**Verdict:** Bullish bias. Entry zone 9,650-9,780 on pullback. Target 10,200. SL 9,400.`,
-  },
+const QUICK_ACTIONS = [
+  'Analyze XAU/USD',
+  'Check Kill Zone',
+  'Risk Check',
+  "What's the bias?",
 ]
 
+const API_URL = 'https://aegis-terminal-api.akbar-rm10.workers.dev/api/ai/chat'
+
+/** Minimal markdown → HTML: bold, bullets, line breaks */
+function renderMarkdown(text: string) {
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/^[-•]\s+(.+)$/gm, '<li>$1</li>')
+  html = html.replace(/(<li>.*<\/li>)/gs, '<ul style="margin:4px 0 4px 18px;padding:0">$1</ul>')
+  html = html.replace(/\n/g, '<br/>')
+  return html
+}
+
 export default function AI() {
-  const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES)
+  const [messages, setMessages] = useState<Message[]>([WELCOME_MSG])
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  const handleSend = () => {
-    if (!input.trim()) return
-    const userMsg: Message = { id: Date.now(), role: 'user', content: input }
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [messages, isTyping])
+
+  const handleSend = async (text?: string) => {
+    const query = (text ?? input).trim()
+    if (!query) return
+
+    const userMsg: Message = { id: Date.now(), role: 'user', content: query }
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setIsTyping(true)
 
-    setTimeout(() => {
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: query,
+          history: [...messages, userMsg].slice(-10).map(m => ({ role: m.role, content: m.content })),
+        }),
+      })
+      const data = await res.json()
       const aiMsg: Message = {
-        id: Date.now() + 1, role: 'assistant',
-        content: 'Analyzing your request... This is a placeholder response. The AI module will be connected to a real LLM endpoint in a future update.',
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: data.reply ?? data.message ?? data.error ?? 'Tidak ada respons dari AI.',
       }
       setMessages(prev => [...prev, aiMsg])
+    } catch (err: any) {
+      const errMsg: Message = {
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: `⚠️ Error API: ${err.message ?? 'Koneksi gagal'}. Periksa status backend.`,
+      }
+      setMessages(prev => [...prev, errMsg])
+    } finally {
       setIsTyping(false)
-    }, 1500)
+    }
   }
 
   return (
     <div>
       <div className="kt-route-head">
         <div>
-          <div className="kt-kicker">AI Assistant</div>
+          <div className="kt-kicker">Aegis AI</div>
           <h1>AI Context</h1>
-          <p>Market context, setup analysis, and decision checklists</p>
+          <p>SMC + ICT Context</p>
         </div>
         <div className="kt-route-actions">
           <Sparkles size={12} style={{ color: 'var(--kt-gold)' }} />
-          <span>GPT-4 Powered</span>
+          <span>Groq Llama 3.3</span>
         </div>
       </div>
 
@@ -83,30 +103,45 @@ export default function AI() {
           <span className="kt-pill">{messages.length} messages</span>
         </div>
         <div className="kt-panel-body" style={{ minHeight: 400, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
+          <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
             {messages.map(msg => (
               <div key={msg.id} className="kt-chat-msg">
                 <div className={`kt-chat-avatar ${msg.role}`}>
                   {msg.role === 'user' ? <User size={13} /> : <Bot size={13} />}
                 </div>
-                <div className="kt-chat-content">
-                  {msg.content.split('\n').map((line, i) => (
-                    <p key={i} style={{ marginBottom: line ? 6 : 0 }}>{line || '\u00A0'}</p>
-                  ))}
-                </div>
+                <div
+                  className="kt-chat-content"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                />
               </div>
             ))}
             {isTyping && (
               <div className="kt-chat-msg">
                 <div className="kt-chat-avatar bot"><Bot size={13} /></div>
-                <div className="kt-chat-content" style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--kt-muted)' }}>
-                  <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
-                  Thinking...
+                <div className="kt-chat-content" style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--kt-muted)' }}>
+                  <span className="ai-dot" style={{ animationDelay: '0s' }}>.</span>
+                  <span className="ai-dot" style={{ animationDelay: '0.2s' }}>.</span>
+                  <span className="ai-dot" style={{ animationDelay: '0.4s' }}>.</span>
                 </div>
               </div>
             )}
           </div>
 
+          {/* Quick actions */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {QUICK_ACTIONS.map(action => (
+              <button
+                key={action}
+                className="kt-pill"
+                style={{ cursor: 'pointer', fontSize: 'var(--xs)' }}
+                onClick={() => handleSend(action)}
+              >
+                {action}
+              </button>
+            ))}
+          </div>
+
+          {/* Input row */}
           <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--kt-border-soft)', paddingTop: 14 }}>
             <input
               className="kt-input"
@@ -116,14 +151,26 @@ export default function AI() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSend()}
             />
-            <button className="kt-btn kt-btn-primary" onClick={handleSend}>
+            <button className="kt-btn kt-btn-primary" onClick={() => handleSend()} disabled={isTyping}>
               <Send size={13} />
             </button>
           </div>
         </div>
       </div>
 
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes blink {
+          0%, 20% { opacity: 0.2; }
+          50% { opacity: 1; }
+          80%, 100% { opacity: 0.2; }
+        }
+        .ai-dot {
+          font-size: 20px;
+          font-weight: 700;
+          color: var(--kt-gold);
+          animation: blink 1.4s infinite;
+        }
+      `}</style>
     </div>
   )
 }

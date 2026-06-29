@@ -405,7 +405,7 @@ button, input { font: inherit; }
 .kt-bar-fill.blue { background: var(--kt-blue); }
 
 /* ── TABLE ── */
-.kt-table { width: 100%; border-collapse: collapse; }
+.kt-table { width: 100%; border-collapse: collapse; min-width: 600px; }
 .kt-table th {
   text-align: left;
   color: var(--kt-muted);
@@ -445,7 +445,7 @@ button, input { font: inherit; }
   padding: 16px 18px;
   border-bottom: 1px solid var(--kt-border-soft);
 }
-.kt-panel-body { padding: 18px; }
+.kt-panel-body { padding: 18px; overflow-x: auto; }
 
 /* ── GRID LAYOUTS ── */
 .kt-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -628,4 +628,20 @@ button, input { font: inherit; }
   .kt-grid-2, .kt-grid-3, .kt-grid-4, .kt-grid-5 { grid-template-columns: 1fr; }
   .kt-cal-row { grid-template-columns: 1fr; gap: 4px; }
   .kt-cal-row > :nth-child(n+3) { display: none; }
+}
+
+/* ── A11Y: Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── A11Y: Mobile minimum font size ── */
+@media (max-width: 600px) {
+  .kt-table { font-size: 13px; }
+  .kt-panel-body { overflow-x: auto; }
 }
