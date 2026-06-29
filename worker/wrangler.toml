@@ -5,8 +5,14 @@ compatibility_date = "2024-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "aegis-terminal-db"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+database_id = "856902dd-e6d3-4775-97ba-9998142b42fc"
 
 [[kv_namespaces]]
 binding = "AEGIS_CACHE"
-id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+id = "6d859a36bc874db0b11406faed02034e"
+
+[vars]
+GROQ_API_KEY = ""
+
+[triggers]
+crons = ["*/5 * * * *"]  # Every 5 minutes — pre-warm market cache

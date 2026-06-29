@@ -1,11 +1,16 @@
 import { useState } from 'react'
-import { TrendingUp, TrendingDown, ArrowUpDown, Search } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { TrendingUp, TrendingDown, ArrowUpDown, Search, BarChart3, Globe } from 'lucide-react'
+import { api } from '../../lib/api'
 
-type Tab = 'IDX' | 'US' | 'Crypto' | 'Forex'
+type Tab = 'Forex' | 'IDX' | 'US' | 'Crypto'
+const tabs: Tab[] = ['Forex', 'IDX', 'US', 'Crypto']
 
-const tabs: Tab[] = ['IDX', 'US', 'Crypto', 'Forex']
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`skeleton ${className}`} />
+}
 
-const mockData: Record<Tab, { symbol: string; name: string; price: string; change: string; volume: string; up: boolean }[]> = {
+const STATIC_DATA: Record<Tab, any[]> = {
   IDX: [
     { symbol: 'BBCA', name: 'Bank Central Asia', price: '9,850', change: '+0.51%', volume: '12.5M', up: true },
     { symbol: 'BBRI', name: 'Bank Rakyat Indonesia', price: '4,520', change: '+2.80%', volume: '18.2M', up: true },
@@ -15,122 +20,148 @@ const mockData: Record<Tab, { symbol: string; name: string; price: string; chang
     { symbol: 'EXCL', name: 'XL Axiata', price: '1,920', change: '-3.10%', volume: '9.1M', up: false },
     { symbol: 'INDF', name: 'Indofood Sukses', price: '5,750', change: '-2.40%', volume: '3.2M', up: false },
     { symbol: 'KLBF', name: 'Kalbe Farma', price: '1,340', change: '-1.80%', volume: '5.7M', up: false },
-    { symbol: 'ASII', name: 'Astra International', price: '4,890', change: '+0.82%', volume: '6.8M', up: true },
-    { symbol: 'UNVR', name: 'Unilever Indonesia', price: '2,150', change: '-0.46%', volume: '4.1M', up: false },
   ],
   US: [
     { symbol: 'AAPL', name: 'Apple Inc', price: '$195.40', change: '+0.72%', volume: '52.1M', up: true },
     { symbol: 'MSFT', name: 'Microsoft Corp', price: '$445.20', change: '+0.35%', volume: '18.3M', up: true },
     { symbol: 'NVDA', name: 'NVIDIA Corp', price: '$125.80', change: '+1.20%', volume: '312M', up: true },
-    { symbol: 'GOOGL', name: 'Alphabet Inc', price: '$178.90', change: '-0.15%', volume: '22.4M', up: false },
-    { symbol: 'AMZN', name: 'Amazon.com', price: '$186.50', change: '+0.48%', volume: '45.2M', up: true },
     { symbol: 'TSLA', name: 'Tesla Inc', price: '$248.60', change: '-1.30%', volume: '98.5M', up: false },
   ],
   Crypto: [
     { symbol: 'BTC', name: 'Bitcoin', price: '$59,748', change: '-0.14%', volume: '$28.5B', up: false },
     { symbol: 'ETH', name: 'Ethereum', price: '$3,450', change: '+0.45%', volume: '$12.1B', up: true },
     { symbol: 'SOL', name: 'Solana', price: '$142.30', change: '+2.10%', volume: '$3.2B', up: true },
-    { symbol: 'BNB', name: 'BNB', price: '$598.40', change: '+0.28%', volume: '$1.8B', up: true },
-    { symbol: 'XRP', name: 'Ripple', price: '$0.52', change: '-0.75%', volume: '$1.1B', up: false },
-    { symbol: 'ADA', name: 'Cardano', price: '$0.45', change: '+1.20%', volume: '$420M', up: true },
   ],
   Forex: [
     { symbol: 'USD/IDR', name: 'US Dollar / Rupiah', price: '16,234', change: '+0.05%', volume: '—', up: true },
-    { symbol: 'EUR/USD', name: 'Euro / US Dollar', price: '1.0845', change: '-0.12%', volume: '—', up: false },
-    { symbol: 'GBP/USD', name: 'Pound / US Dollar', price: '1.2720', change: '+0.08%', volume: '—', up: true },
-    { symbol: 'USD/JPY', name: 'US Dollar / Yen', price: '159.80', change: '+0.22%', volume: '—', up: true },
     { symbol: 'XAU/USD', name: 'Gold / US Dollar', price: '3,275', change: '-0.22%', volume: '—', up: false },
-    { symbol: 'XAG/USD', name: 'Silver / US Dollar', price: '29.15', change: '+0.35%', volume: '—', up: true },
   ],
 }
 
+function TableSkeleton() {
+  return (
+    <div className="space-y-0">
+      {[...Array(8)].map((_, i) => (
+        <div key={i} className="flex items-center px-5 py-4 gap-4">
+          <Skeleton className="w-14 h-4" />
+          <Skeleton className="w-36 h-4" />
+          <Skeleton className="ml-auto w-20 h-4" />
+          <Skeleton className="ml-auto w-16 h-4" />
+          <Skeleton className="ml-auto w-14 h-4" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function Market() {
-  const [activeTab, setActiveTab] = useState<Tab>('IDX')
+  const [activeTab, setActiveTab] = useState<Tab>('Forex')
   const [search, setSearch] = useState('')
-  const data = mockData[activeTab].filter(d =>
+
+  const { data: scanData, isLoading } = useQuery({
+    queryKey: ['market-scan', activeTab],
+    queryFn: () => api<any[]>(`/api/market/scan?exchange=${activeTab}`),
+    enabled: activeTab === 'IDX',
+    staleTime: 30_000,
+    retry: false,
+  })
+
+  const apiRows = (activeTab === 'IDX' && scanData) ? scanData.map((s: any) => ({
+    symbol: s.symbol ?? '—',
+    name: s.name ?? s.symbol ?? '—',
+    price: typeof s.price === 'number' ? s.price.toLocaleString() : String(s.price ?? '—'),
+    change: typeof s.change === 'number' ? `${s.change >= 0 ? '+' : ''}${s.change.toFixed(2)}%` : String(s.change ?? '0%'),
+    volume: typeof s.volume === 'number' ? (s.volume >= 1e9 ? `${(s.volume / 1e9).toFixed(1)}B` : s.volume >= 1e6 ? `${(s.volume / 1e6).toFixed(1)}M` : s.volume.toLocaleString()) : String(s.volume ?? '—'),
+    up: typeof s.change === 'number' ? s.change >= 0 : true,
+  })) : null
+
+  const rows = apiRows ?? STATIC_DATA[activeTab]
+  const data = rows.filter(d =>
     d.symbol.toLowerCase().includes(search.toLowerCase()) ||
     d.name.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Market Overview</h1>
-          <p className="text-sm text-fg-muted mt-0.5">Real-time prices across all markets</p>
+          <h1 className="text-xl font-bold tracking-tight">Market Overview</h1>
+          <p className="text-[13px] text-fg-muted mt-1">Real-time prices across all markets</p>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-fg-muted font-mono">
+          <Globe size={14} className="text-info" />
+          <span>{data.length} instruments</span>
         </div>
       </div>
 
       {/* Tabs + Search */}
       <div className="flex items-center justify-between">
-        <div className="flex gap-1 bg-default border border-border rounded-lg p-1">
+        <div className="flex gap-1 bg-surface-dark/60 backdrop-blur-sm border border-border/40 rounded-xl p-1">
           {tabs.map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+              className={`px-5 py-1.5 text-[13px] rounded-lg transition-all font-medium ${
                 activeTab === tab
-                  ? 'bg-primary text-canvas font-medium'
-                  : 'text-fg-secondary hover:text-fg hover:bg-surface-hover'
+                  ? 'bg-gradient-to-r from-primary to-primary-hover text-canvas shadow-[0_0_12px_rgba(62,207,142,0.2)]'
+                  : 'text-fg-muted hover:text-fg hover:bg-surface-hover/50'
               }`}
             >
               {tab}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-default border border-border rounded-md w-64">
-          <Search size={14} className="text-fg-muted" />
+        <div className="flex items-center gap-2 px-3 py-2 glass rounded-lg w-72">
+          <Search size={14} className="text-fg-placeholder" />
           <input
             type="text"
             placeholder="Search symbol..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="bg-transparent text-sm text-fg placeholder:text-fg-placeholder outline-none flex-1"
+            className="bg-transparent text-[13px] text-fg placeholder:text-fg-placeholder outline-none flex-1"
           />
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-default border border-border rounded-lg overflow-hidden">
+      <div className="glass overflow-hidden">
         <table className="w-full">
           <thead>
-            <tr className="bg-surface-dark border-b border-border">
-              <th className="text-left px-4 py-3 text-xs font-semibold text-fg-muted uppercase tracking-wider">
-                <button className="flex items-center gap-1 hover:text-fg transition-colors">
-                  Symbol <ArrowUpDown size={10} />
-                </button>
-              </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-fg-muted uppercase tracking-wider">Name</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-fg-muted uppercase tracking-wider">
-                <button className="flex items-center gap-1 hover:text-fg transition-colors ml-auto">
-                  Price <ArrowUpDown size={10} />
-                </button>
-              </th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-fg-muted uppercase tracking-wider">
-                <button className="flex items-center gap-1 hover:text-fg transition-colors ml-auto">
-                  Change <ArrowUpDown size={10} />
-                </button>
-              </th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-fg-muted uppercase tracking-wider">Volume</th>
+            <tr className="border-b border-border/30">
+              {['Symbol', 'Name', 'Price', 'Change', 'Volume'].map((h, i) => (
+                <th key={h} className={`${i >= 2 ? 'text-right' : 'text-left'} px-5 py-3 text-[10px] font-semibold text-fg-muted uppercase tracking-widest font-mono`}>
+                  {i >= 2 && i <= 3 ? (
+                    <button className="flex items-center gap-1 hover:text-fg transition-colors ml-auto">
+                      {h} <ArrowUpDown size={9} />
+                    </button>
+                  ) : h}
+                </th>
+              ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-border-subtle">
-            {data.map(row => (
-              <tr key={row.symbol} className="hover:bg-surface-hover transition-colors cursor-pointer">
-                <td className="px-4 py-3">
-                  <span className="font-mono font-medium text-sm">{row.symbol}</span>
-                </td>
-                <td className="px-4 py-3 text-sm text-fg-secondary">{row.name}</td>
-                <td className="px-4 py-3 text-right font-mono text-sm">{row.price}</td>
-                <td className="px-4 py-3 text-right">
-                  <span className={`inline-flex items-center gap-1 font-mono text-sm ${row.up ? 'text-primary' : 'text-danger'}`}>
-                    {row.up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                    {row.change}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-xs text-fg-muted">{row.volume}</td>
-              </tr>
-            ))}
+          <tbody>
+            {isLoading && activeTab === 'IDX' ? (
+              <tr><td colSpan={5}><TableSkeleton /></td></tr>
+            ) : (
+              data.map((row, i) => (
+                <tr key={row.symbol} className="table-row-hover cursor-pointer border-b border-border/10 last:border-0">
+                  <td className="px-5 py-3">
+                    <span className="font-mono font-semibold text-[13px]">{row.symbol}</span>
+                  </td>
+                  <td className="px-5 py-3 text-[13px] text-fg-secondary">{row.name}</td>
+                  <td className="px-5 py-3 text-right font-mono text-[13px] font-medium">{row.price}</td>
+                  <td className="px-5 py-3 text-right">
+                    <span className={`inline-flex items-center gap-1 font-mono text-[12px] font-semibold px-2 py-0.5 rounded-md ${
+                      row.up ? 'text-primary bg-primary/[0.08]' : 'text-danger bg-danger/[0.08]'
+                    }`}>
+                      {row.up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                      {row.change}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-right font-mono text-[11px] text-fg-muted">{row.volume}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

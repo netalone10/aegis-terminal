@@ -2,14 +2,8 @@ import { useState } from 'react'
 import { TrendingUp, TrendingDown, Plus, Briefcase, Target, ShieldAlert, Trophy } from 'lucide-react'
 
 interface Position {
-  id: number
-  symbol: string
-  direction: 'Long' | 'Short'
-  entryPrice: number
-  currentPrice: number
-  sl: number
-  tp: number
-  status: 'Open' | 'Closed'
+  id: number; symbol: string; direction: 'Long' | 'Short';
+  entryPrice: number; currentPrice: number; sl: number; tp: number; status: 'Open' | 'Closed';
 }
 
 const MOCK_POSITIONS: Position[] = [
@@ -27,10 +21,10 @@ function calcPnL(p: Position) {
 }
 
 const summaryStats = [
-  { label: 'Total P&L', value: '+Rp 1,245,000', icon: TrendingUp, color: 'text-primary' },
-  { label: 'Win Rate', value: '72%', icon: Trophy, color: 'text-warning' },
-  { label: 'Open Positions', value: '3', icon: Briefcase, color: 'text-info' },
-  { label: 'Max Drawdown', value: '-4.2%', icon: ShieldAlert, color: 'text-danger' },
+  { label: 'Total P&L', value: '+Rp 1,245,000', icon: TrendingUp, color: 'text-primary', glow: 'glow-primary' },
+  { label: 'Win Rate', value: '72%', icon: Trophy, color: 'text-warning', glow: 'glow-warning' },
+  { label: 'Open Positions', value: '3', icon: Briefcase, color: 'text-info', glow: 'glow-info' },
+  { label: 'Max Drawdown', value: '-4.2%', icon: ShieldAlert, color: 'text-danger', glow: 'glow-danger' },
 ]
 
 export default function Portfolio() {
@@ -42,12 +36,12 @@ export default function Portfolio() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-fg">Position Monitor</h1>
-          <p className="text-sm text-fg-muted mt-0.5">Track open & closed positions</p>
+          <h1 className="text-xl font-bold tracking-tight">Position Monitor</h1>
+          <p className="text-[13px] text-fg-muted mt-1">Track open & closed positions</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-canvas text-sm font-medium rounded-md hover:bg-primary-hover transition-colors"
+          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary to-primary-hover text-canvas text-[13px] font-semibold rounded-lg hover:shadow-[0_0_20px_rgba(62,207,142,0.3)] transition-all"
         >
           <Plus size={14} />
           Add Position
@@ -56,51 +50,34 @@ export default function Portfolio() {
 
       {/* Inline form */}
       {showForm && (
-        <div className="bg-default border border-border rounded-lg p-4">
+        <div className="glass p-5 glow-subtle">
           <div className="grid grid-cols-5 gap-3">
-            <input
-              placeholder="Symbol"
-              value={form.symbol}
-              onChange={e => setForm({ ...form, symbol: e.target.value.toUpperCase() })}
-              className="px-3 py-2 bg-surface border border-border rounded-md text-sm text-fg placeholder:text-fg-placeholder focus:outline-none focus:border-primary font-mono"
-            />
+            {[
+              { key: 'symbol', placeholder: 'Symbol', value: form.symbol },
+              { key: 'entryPrice', placeholder: 'Entry Price', value: form.entryPrice },
+              { key: 'sl', placeholder: 'Stop Loss', value: form.sl },
+              { key: 'tp', placeholder: 'Take Profit', value: form.tp },
+            ].map(f => (
+              <input
+                key={f.key}
+                placeholder={f.placeholder}
+                value={f.value}
+                onChange={e => setForm({ ...form, [f.key]: f.key === 'symbol' ? e.target.value.toUpperCase() : e.target.value })}
+                className="px-3 py-2.5 bg-surface/60 border border-border/40 rounded-lg text-[13px] text-fg placeholder:text-fg-placeholder focus:outline-none focus:border-primary/50 font-mono transition-colors"
+              />
+            ))}
             <select
               value={form.direction}
               onChange={e => setForm({ ...form, direction: e.target.value as 'Long' | 'Short' })}
-              className="px-3 py-2 bg-surface border border-border rounded-md text-sm text-fg focus:outline-none focus:border-primary"
+              className="px-3 py-2.5 bg-surface/60 border border-border/40 rounded-lg text-[13px] text-fg focus:outline-none focus:border-primary/50 transition-colors"
             >
               <option value="Long">Long</option>
               <option value="Short">Short</option>
             </select>
-            <input
-              placeholder="Entry Price"
-              value={form.entryPrice}
-              onChange={e => setForm({ ...form, entryPrice: e.target.value })}
-              className="px-3 py-2 bg-surface border border-border rounded-md text-sm text-fg placeholder:text-fg-placeholder focus:outline-none focus:border-primary font-mono"
-            />
-            <input
-              placeholder="Stop Loss"
-              value={form.sl}
-              onChange={e => setForm({ ...form, sl: e.target.value })}
-              className="px-3 py-2 bg-surface border border-border rounded-md text-sm text-fg placeholder:text-fg-placeholder focus:outline-none focus:border-primary font-mono"
-            />
-            <input
-              placeholder="Take Profit"
-              value={form.tp}
-              onChange={e => setForm({ ...form, tp: e.target.value })}
-              className="px-3 py-2 bg-surface border border-border rounded-md text-sm text-fg placeholder:text-fg-placeholder focus:outline-none focus:border-primary font-mono"
-            />
           </div>
           <div className="flex gap-2 mt-3">
-            <button className="px-4 py-1.5 bg-primary text-canvas text-xs font-medium rounded-md hover:bg-primary-hover transition-colors">
-              Save
-            </button>
-            <button
-              onClick={() => setShowForm(false)}
-              className="px-4 py-1.5 bg-surface border border-border text-xs text-fg-muted rounded-md hover:border-border-hover transition-colors"
-            >
-              Cancel
-            </button>
+            <button className="px-5 py-2 bg-primary text-canvas text-[12px] font-semibold rounded-lg hover:bg-primary-hover transition-colors">Save</button>
+            <button onClick={() => setShowForm(false)} className="px-5 py-2 glass text-[12px] text-fg-muted rounded-lg hover:text-fg-secondary transition-colors">Cancel</button>
           </div>
         </div>
       )}
@@ -110,69 +87,55 @@ export default function Portfolio() {
         {summaryStats.map(stat => {
           const Icon = stat.icon
           return (
-            <div key={stat.label} className="bg-default border border-border rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
+            <div key={stat.label} className={`glass glass-hover gradient-border p-5 ${stat.glow}`}>
+              <div className="flex items-center gap-2 mb-3">
                 <Icon size={14} className={stat.color} />
-                <span className="text-xs text-fg-muted">{stat.label}</span>
+                <span className="text-[11px] text-fg-muted font-mono uppercase tracking-widest">{stat.label}</span>
               </div>
-              <span className={`text-xl font-semibold font-mono ${stat.color}`}>{stat.value}</span>
+              <span className={`text-2xl font-bold font-mono ${stat.color}`}>{stat.value}</span>
             </div>
           )
         })}
       </div>
 
       {/* Positions table */}
-      <div className="bg-default border border-border rounded-lg overflow-hidden">
+      <div className="glass overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-xs text-fg-muted uppercase tracking-wider">
-                <th className="text-left px-4 py-3 font-medium">Symbol</th>
-                <th className="text-center px-4 py-3 font-medium">Direction</th>
-                <th className="text-right px-4 py-3 font-medium">Entry</th>
-                <th className="text-right px-4 py-3 font-medium">Current</th>
-                <th className="text-right px-4 py-3 font-medium">P&L</th>
-                <th className="text-right px-4 py-3 font-medium">P&L%</th>
-                <th className="text-right px-4 py-3 font-medium">SL</th>
-                <th className="text-right px-4 py-3 font-medium">TP</th>
-                <th className="text-center px-4 py-3 font-medium">Status</th>
+              <tr className="border-b border-border/30 text-[10px] text-fg-muted uppercase tracking-widest font-mono">
+                {['Symbol', 'Direction', 'Entry', 'Current', 'P&L', 'P&L%', 'SL', 'TP', 'Status'].map(h => (
+                  <th key={h} className={`px-5 py-3 font-semibold ${['Direction', 'Status'].includes(h) ? 'text-center' : ['Symbol'].includes(h) ? 'text-left' : 'text-right'}`}>{h}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-border-subtle">
+            <tbody>
               {MOCK_POSITIONS.map(pos => {
                 const { diff, pct } = calcPnL(pos)
                 const isProfit = diff >= 0
                 return (
-                  <tr key={pos.id} className="hover:bg-surface-hover transition-colors">
-                    <td className="px-4 py-3 font-mono font-semibold text-fg">{pos.symbol}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-mono font-medium ${
-                        pos.direction === 'Long'
-                          ? 'bg-primary-bg text-primary'
-                          : 'bg-danger/15 text-danger'
-                      }`}>
+                  <tr key={pos.id} className="table-row-hover border-b border-border/10 last:border-0">
+                    <td className="px-5 py-3 font-mono font-bold text-[13px]">{pos.symbol}</td>
+                    <td className="px-5 py-3 text-center">
+                      <span className={`chip ${pos.direction === 'Long' ? 'chip-primary' : 'chip-danger'}`}>
                         {pos.direction}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-fg-secondary">{pos.entryPrice.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right font-mono text-fg">{pos.currentPrice.toLocaleString()}</td>
-                    <td className={`px-4 py-3 text-right font-mono font-medium ${isProfit ? 'text-primary' : 'text-danger'}`}>
+                    <td className="px-5 py-3 text-right font-mono text-fg-secondary text-[12px]">{pos.entryPrice.toLocaleString()}</td>
+                    <td className="px-5 py-3 text-right font-mono text-fg font-medium text-[13px]">{pos.currentPrice.toLocaleString()}</td>
+                    <td className={`px-5 py-3 text-right font-mono font-bold text-[13px] ${isProfit ? 'text-primary' : 'text-danger'}`}>
                       {isProfit ? '+' : ''}{diff.toLocaleString()}
                     </td>
-                    <td className={`px-4 py-3 text-right font-mono ${isProfit ? 'text-primary' : 'text-danger'}`}>
-                      <span className="inline-flex items-center gap-1">
-                        {isProfit ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                    <td className={`px-5 py-3 text-right font-mono text-[12px]`}>
+                      <span className={`inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md ${isProfit ? 'text-primary bg-primary/[0.08]' : 'text-danger bg-danger/[0.08]'}`}>
+                        {isProfit ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
                         {isProfit ? '+' : ''}{pct.toFixed(2)}%
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-danger/70">{pos.sl.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right font-mono text-primary/70">{pos.tp.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-mono font-medium ${
-                        pos.status === 'Open'
-                          ? 'bg-primary-bg text-primary'
-                          : 'bg-surface text-fg-muted'
-                      }`}>
+                    <td className="px-5 py-3 text-right font-mono text-danger/60 text-[12px]">{pos.sl.toLocaleString()}</td>
+                    <td className="px-5 py-3 text-right font-mono text-primary/60 text-[12px]">{pos.tp.toLocaleString()}</td>
+                    <td className="px-5 py-3 text-center">
+                      <span className={`chip ${pos.status === 'Open' ? 'chip-primary' : 'chip-muted'}`}>
                         {pos.status}
                       </span>
                     </td>

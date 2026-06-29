@@ -1,10 +1,6 @@
 import { TrendingUp, TrendingDown, Minus, Globe, Calendar, Landmark } from 'lucide-react'
 
-const REGIME = {
-  name: 'Goldilocks',
-  description: 'Moderate growth with controlled inflation — favorable for risk assets',
-  confidence: 78,
-}
+const REGIME = { name: 'Goldilocks', description: 'Moderate growth with controlled inflation — favorable for risk assets', confidence: 78 }
 
 const INDICATORS = [
   { label: 'CPI (YoY)', value: '3.2%', trend: 'down' as const, data: [4.1, 3.9, 3.6, 3.4, 3.2] },
@@ -34,15 +30,12 @@ const RATES = [
 ]
 
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
-  const min = Math.min(...data)
-  const max = Math.max(...data)
-  const range = max - min || 1
-  const w = 60
-  const h = 20
+  const min = Math.min(...data); const max = Math.max(...data); const range = max - min || 1
+  const w = 60; const h = 20
   const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`).join(' ')
   return (
-    <svg width={w} height={h} className="shrink-0">
-      <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
+    <svg width={w} height={h} className="shrink-0 opacity-80">
+      <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -54,9 +47,7 @@ function TrendIcon({ trend }: { trend: 'up' | 'down' | 'flat' }) {
 }
 
 const IMPACT_COLORS: Record<string, string> = {
-  High: 'bg-danger/15 text-danger',
-  Medium: 'bg-warning/15 text-warning',
-  Low: 'bg-surface text-fg-muted',
+  High: 'chip-danger', Medium: 'chip-warning', Low: 'chip-muted',
 }
 
 export default function Macro() {
@@ -65,30 +56,30 @@ export default function Macro() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-fg">Macro Overview</h1>
-          <p className="text-sm text-fg-muted mt-0.5">Economic regime & indicators</p>
+          <h1 className="text-xl font-bold tracking-tight">Macro Overview</h1>
+          <p className="text-[13px] text-fg-muted mt-1">Economic regime & indicators</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-fg-muted font-mono">
+        <div className="flex items-center gap-2 text-[11px] text-fg-muted font-mono">
           <Globe size={14} className="text-info" />
           <span>Last updated: 2h ago</span>
         </div>
       </div>
 
       {/* Regime card */}
-      <div className="bg-default border border-border rounded-lg p-5">
-        <div className="flex items-center justify-between mb-3">
+      <div className="glass p-6 glow-primary">
+        <div className="flex items-center justify-between">
           <div>
-            <span className="text-xs text-fg-muted uppercase tracking-wider">Current Regime</span>
+            <span className="text-[10px] text-fg-muted uppercase tracking-widest font-mono">Current Regime</span>
             <h2 className="text-2xl font-bold text-primary mt-1">{REGIME.name}</h2>
-            <p className="text-sm text-fg-secondary mt-1">{REGIME.description}</p>
+            <p className="text-[13px] text-fg-secondary mt-1 max-w-lg">{REGIME.description}</p>
           </div>
           <div className="text-right">
-            <span className="text-xs text-fg-muted">Confidence</span>
-            <div className="flex items-center gap-2 mt-1">
-              <div className="w-32 h-2 bg-surface rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full" style={{ width: `${REGIME.confidence}%` }} />
+            <span className="text-[10px] text-fg-muted font-mono">Confidence</span>
+            <div className="flex items-center gap-3 mt-2">
+              <div className="w-32 h-2 bg-surface/80 rounded-full overflow-hidden">
+                <div className="h-full score-bar-primary rounded-full" style={{ width: `${REGIME.confidence}%` }} />
               </div>
-              <span className="text-sm font-mono font-medium text-primary">{REGIME.confidence}%</span>
+              <span className="text-lg font-mono font-bold text-primary">{REGIME.confidence}%</span>
             </div>
           </div>
         </div>
@@ -97,17 +88,14 @@ export default function Macro() {
       {/* Macro indicators grid */}
       <div className="grid grid-cols-5 gap-4">
         {INDICATORS.map(ind => (
-          <div key={ind.label} className="bg-default border border-border rounded-lg p-4">
+          <div key={ind.label} className="glass glass-hover gradient-border p-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-fg-muted">{ind.label}</span>
+              <span className="text-[11px] text-fg-muted font-mono">{ind.label}</span>
               <TrendIcon trend={ind.trend} />
             </div>
-            <span className="text-xl font-semibold font-mono text-fg">{ind.value}</span>
-            <div className="mt-2">
-              <MiniSparkline
-                data={ind.data}
-                color={ind.trend === 'up' ? '#3ecf8e' : ind.trend === 'down' ? '#e54d2e' : '#898989'}
-              />
+            <span className="text-xl font-bold font-mono text-fg">{ind.value}</span>
+            <div className="mt-3">
+              <MiniSparkline data={ind.data} color={ind.trend === 'up' ? '#3ecf8e' : ind.trend === 'down' ? '#e54d2e' : '#898989'} />
             </div>
           </div>
         ))}
@@ -115,21 +103,19 @@ export default function Macro() {
 
       <div className="grid grid-cols-2 gap-4">
         {/* Economic calendar */}
-        <div className="bg-default border border-border rounded-lg overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <div className="glass overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border/30">
             <Calendar size={14} className="text-warning" />
-            <span className="text-sm font-medium text-fg">Economic Calendar</span>
+            <span className="text-[13px] font-medium">Economic Calendar</span>
           </div>
-          <div className="divide-y divide-border-subtle">
+          <div className="divide-y divide-border/15">
             {CALENDAR.map((ev, i) => (
-              <div key={i} className="flex items-center px-4 py-2.5 hover:bg-surface-hover transition-colors">
-                <span className="text-xs font-mono text-fg-muted w-12 shrink-0">{ev.date}</span>
-                <span className="text-xs text-fg flex-1">{ev.event}</span>
-                <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium ${IMPACT_COLORS[ev.impact]}`}>
-                  {ev.impact}
-                </span>
-                <div className="ml-3 text-right">
-                  <span className="text-xs font-mono text-fg-secondary">Fcst: {ev.forecast}</span>
+              <div key={i} className="flex items-center px-5 py-2.5 table-row-hover">
+                <span className="text-[11px] font-mono text-fg-muted w-14 shrink-0">{ev.date}</span>
+                <span className="text-[12px] text-fg flex-1">{ev.event}</span>
+                <span className={`chip ${IMPACT_COLORS[ev.impact]}`}>{ev.impact}</span>
+                <div className="ml-4 text-right">
+                  <span className="text-[11px] font-mono text-fg-secondary">Fcst: {ev.forecast}</span>
                   <span className="text-[10px] text-fg-placeholder ml-2">Prev: {ev.previous}</span>
                 </div>
               </div>
@@ -138,27 +124,25 @@ export default function Macro() {
         </div>
 
         {/* Rates comparison */}
-        <div className="bg-default border border-border rounded-lg overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <div className="glass overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border/30">
             <Landmark size={14} className="text-info" />
-            <span className="text-sm font-medium text-fg">Central Bank Rates</span>
+            <span className="text-[13px] font-medium">Central Bank Rates</span>
           </div>
-          <div className="divide-y divide-border-subtle">
+          <div className="divide-y divide-border/15">
             {RATES.map(r => (
-              <div key={r.central} className="flex items-center px-4 py-3 hover:bg-surface-hover transition-colors">
-                <span className="text-sm text-fg-secondary w-24 shrink-0">{r.central}</span>
-                <span className="text-sm font-mono font-semibold text-fg w-16">{r.rate}</span>
-                <span className={`flex items-center gap-1 text-xs font-mono w-12 ${
+              <div key={r.central} className="flex items-center px-5 py-3 table-row-hover">
+                <span className="text-[13px] text-fg-secondary w-24 shrink-0">{r.central}</span>
+                <span className="text-[13px] font-mono font-bold text-fg w-16">{r.rate}</span>
+                <span className={`flex items-center gap-1 text-[11px] font-mono w-12 ${
                   r.change === 'up' ? 'text-primary' : r.change === 'down' ? 'text-danger' : 'text-fg-muted'
                 }`}>
-                  <TrendIcon trend={r.change} />
+                  <TrendIcon trend={r.change as any} />
                 </span>
-                <span className="text-xs text-fg-muted flex-1">Next: {r.next}</span>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium ${
-                  r.bias === 'Hike' ? 'bg-primary-bg text-primary' : r.bias === 'Cut' ? 'bg-danger/15 text-danger' : 'bg-surface text-fg-muted'
-                }`}>
-                  {r.bias}
-                </span>
+                <span className="text-[11px] text-fg-muted flex-1 font-mono">Next: {r.next}</span>
+                <span className={`chip ${
+                  r.bias === 'Hike' ? 'chip-primary' : r.bias === 'Cut' ? 'chip-danger' : 'chip-muted'
+                }`}>{r.bias}</span>
               </div>
             ))}
           </div>

@@ -1,30 +1,15 @@
 import { useState } from 'react'
-import { Search, Filter, TrendingUp, TrendingDown, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react'
+import { Search, Filter, TrendingUp, TrendingDown, ChevronDown, ChevronUp, BarChart3, Activity } from 'lucide-react'
 
 const FILTERS = [
-  'Market Cap >1T',
-  'Volume >1M',
-  'RSI 30-70',
-  'MACD Signal',
-  'Above SMA200',
-  'Golden Cross',
-  'BB Position',
-  'Revenue Growth >10%',
-  'ROE >15%',
-  'D/E <1.5',
-  'Foreign Flow +',
-  'Sector Momentum +',
+  'Market Cap >1T', 'Volume >1M', 'RSI 30-70', 'MACD Signal',
+  'Above SMA200', 'Golden Cross', 'BB Position', 'Revenue Growth >10%',
+  'ROE >15%', 'D/E <1.5', 'Foreign Flow +', 'Sector Momentum +',
 ]
 
 interface Stock {
-  symbol: string
-  name: string
-  price: number
-  change: number
-  score: number
-  filtersPassed: number
-  signals: string[]
-  passedFilters: boolean[]
+  symbol: string; name: string; price: number; change: number;
+  score: number; filtersPassed: number; signals: string[]; passedFilters: boolean[];
 }
 
 const MOCK_STOCKS: Stock[] = [
@@ -39,13 +24,14 @@ const MOCK_STOCKS: Stock[] = [
 ]
 
 function ScoreBar({ score }: { score: number }) {
-  const color = score >= 80 ? 'bg-primary' : score >= 60 ? 'bg-warning' : score >= 40 ? 'bg-info' : 'bg-danger'
+  const barClass = score >= 80 ? 'score-bar-primary' : score >= 60 ? 'score-bar-warning' : score >= 40 ? 'score-bar-info' : 'score-bar-danger'
+  const textClass = score >= 80 ? 'text-primary' : score >= 60 ? 'text-warning' : score >= 40 ? 'text-info' : 'text-danger'
   return (
-    <div className="flex items-center gap-2 min-w-[120px]">
-      <div className="flex-1 h-2 bg-surface rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%` }} />
+    <div className="flex items-center gap-2.5 min-w-[140px]">
+      <div className="flex-1 h-2 bg-surface/80 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${barClass} transition-all`} style={{ width: `${score}%` }} />
       </div>
-      <span className="text-xs font-mono text-fg-muted w-6 text-right">{score}</span>
+      <span className={`text-[12px] font-mono font-bold w-7 text-right ${textClass}`}>{score}</span>
     </div>
   )
 }
@@ -63,10 +49,7 @@ export default function Scanner() {
 
   const filtered = MOCK_STOCKS
     .filter(s => s.symbol.toLowerCase().includes(search.toLowerCase()) || s.name.toLowerCase().includes(search.toLowerCase()))
-    .filter(s => {
-      if (activeFilters.size === 0) return true
-      return [...activeFilters].every(f => s.passedFilters[f])
-    })
+    .filter(s => activeFilters.size === 0 || [...activeFilters].every(f => s.passedFilters[f]))
     .sort((a, b) => sortDir === 'desc' ? b.score - a.score : a.score - b.score)
 
   return (
@@ -74,11 +57,11 @@ export default function Scanner() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-fg">IDX Stock Screener</h1>
-          <p className="text-sm text-fg-muted mt-0.5">Aegis Fund 12-filter screening engine</p>
+          <h1 className="text-xl font-bold tracking-tight">IDX Stock Screener</h1>
+          <p className="text-[13px] text-fg-muted mt-1">Aegis Fund 12-filter screening engine</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-fg-muted font-mono">
-          <BarChart3 size={14} className="text-primary" />
+        <div className="flex items-center gap-2 text-[11px] text-fg-muted font-mono">
+          <Activity size={14} className="text-primary" />
           <span>{filtered.length} results</span>
         </div>
       </div>
@@ -92,14 +75,11 @@ export default function Scanner() {
             placeholder="Search symbol or name..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-surface border border-border rounded-md text-sm text-fg placeholder:text-fg-placeholder focus:outline-none focus:border-primary transition-colors font-mono"
+            className="w-full pl-9 pr-3 py-2.5 glass text-[13px] text-fg placeholder:text-fg-placeholder focus:outline-none focus:border-primary/50 transition-colors font-mono rounded-lg"
           />
         </div>
         {activeFilters.size > 0 && (
-          <button
-            onClick={() => setActiveFilters(new Set())}
-            className="text-xs text-danger hover:text-danger-hover transition-colors"
-          >
+          <button onClick={() => setActiveFilters(new Set())} className="text-[12px] text-danger hover:text-danger-hover transition-colors font-medium">
             Clear {activeFilters.size} filters
           </button>
         )}
@@ -111,71 +91,64 @@ export default function Scanner() {
           <button
             key={f}
             onClick={() => toggleFilter(i)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+            className={`px-3.5 py-1.5 rounded-lg text-[11px] font-medium border transition-all ${
               activeFilters.has(i)
-                ? 'bg-primary-bg border-primary text-primary'
-                : 'bg-surface border-border text-fg-muted hover:border-border-hover hover:text-fg-secondary'
+                ? 'bg-primary-bg border-primary/30 text-primary glow-primary'
+                : 'bg-surface/60 border-border/40 text-fg-muted hover:border-border-hover hover:text-fg-secondary'
             }`}
           >
-            <Filter size={10} className="inline mr-1.5 -mt-0.5" />
+            <Filter size={9} className="inline mr-1.5 -mt-0.5" />
             {f}
           </button>
         ))}
       </div>
 
       {/* Results table */}
-      <div className="bg-default border border-border rounded-lg overflow-hidden">
+      <div className="glass overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-xs text-fg-muted uppercase tracking-wider">
-                <th className="text-left px-4 py-3 font-medium">Symbol</th>
-                <th className="text-left px-4 py-3 font-medium">Name</th>
-                <th className="text-right px-4 py-3 font-medium">Price</th>
-                <th className="text-right px-4 py-3 font-medium">Change%</th>
-                <th className="text-left px-4 py-3 font-medium">
-                  <button
-                    onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
-                    className="flex items-center gap-1 hover:text-fg transition-colors"
-                  >
-                    Score
-                    {sortDir === 'desc' ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+              <tr className="border-b border-border/30 text-[10px] text-fg-muted uppercase tracking-widest font-mono">
+                <th className="text-left px-5 py-3 font-semibold">Symbol</th>
+                <th className="text-left px-5 py-3 font-semibold">Name</th>
+                <th className="text-right px-5 py-3 font-semibold">Price</th>
+                <th className="text-right px-5 py-3 font-semibold">Change%</th>
+                <th className="text-left px-5 py-3 font-semibold">
+                  <button onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')} className="flex items-center gap-1 hover:text-fg transition-colors">
+                    Score {sortDir === 'desc' ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
                   </button>
                 </th>
-                <th className="text-center px-4 py-3 font-medium">Filters</th>
-                <th className="text-left px-4 py-3 font-medium">Signals</th>
+                <th className="text-center px-5 py-3 font-semibold">Filters</th>
+                <th className="text-left px-5 py-3 font-semibold">Signals</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border-subtle">
+            <tbody>
               {filtered.map(stock => (
-                <tr key={stock.symbol} className="hover:bg-surface-hover transition-colors">
-                  <td className="px-4 py-3">
-                    <span className="font-mono font-semibold text-fg">{stock.symbol}</span>
+                <tr key={stock.symbol} className="table-row-hover border-b border-border/10 last:border-0">
+                  <td className="px-5 py-3">
+                    <span className="font-mono font-bold text-[13px]">{stock.symbol}</span>
                   </td>
-                  <td className="px-4 py-3 text-fg-secondary">{stock.name}</td>
-                  <td className="px-4 py-3 text-right font-mono text-fg">
-                    {stock.price.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono">
-                    <span className={`inline-flex items-center gap-1 ${stock.change >= 0 ? 'text-primary' : 'text-danger'}`}>
-                      {stock.change >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                  <td className="px-5 py-3 text-fg-secondary text-[13px]">{stock.name}</td>
+                  <td className="px-5 py-3 text-right font-mono text-[13px] font-medium">{stock.price.toLocaleString()}</td>
+                  <td className="px-5 py-3 text-right font-mono">
+                    <span className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2 py-0.5 rounded-md ${
+                      stock.change >= 0 ? 'text-primary bg-primary/[0.08]' : 'text-danger bg-danger/[0.08]'
+                    }`}>
+                      {stock.change >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
                       {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)}%
                     </span>
                   </td>
-                  <td className="px-4 py-3">
-                    <ScoreBar score={stock.score} />
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="font-mono text-fg-secondary">
-                      {stock.filtersPassed}<span className="text-fg-placeholder">/12</span>
+                  <td className="px-5 py-3"><ScoreBar score={stock.score} /></td>
+                  <td className="px-5 py-3 text-center">
+                    <span className="font-mono text-[13px]">
+                      <span className={stock.filtersPassed >= 10 ? 'text-primary font-bold' : 'text-fg-secondary'}>{stock.filtersPassed}</span>
+                      <span className="text-fg-placeholder">/12</span>
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-5 py-3">
                     <div className="flex flex-wrap gap-1">
                       {stock.signals.map(s => (
-                        <span key={s} className="px-2 py-0.5 bg-surface border border-border-subtle rounded text-[10px] text-fg-muted font-mono">
-                          {s}
-                        </span>
+                        <span key={s} className="chip chip-muted">{s}</span>
                       ))}
                     </div>
                   </td>

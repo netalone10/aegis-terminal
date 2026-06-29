@@ -2,7 +2,7 @@ name: Deploy to Cloudflare
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 jobs:
   deploy-frontend:
@@ -28,7 +28,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           workingDirectory: frontend
-          command: pages deploy dist --project-name=aegis-terminal --branch=master
+          command: pages deploy dist --project-name=aegis-terminal --branch=main
 
   deploy-worker:
     name: Deploy Worker (CF Workers)
