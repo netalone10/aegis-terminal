@@ -4,20 +4,21 @@ import type { Bindings } from '../index';
 
 export const smcRoutes = new Hono<{ Bindings: Bindings }>();
 
-// TV Scanner helper
-async function tvScan(query: object): Promise<any> {
+// TV Scanner helper — optional timeframe param
+async function tvScan(query: object, timeframe?: string): Promise<any> {
+  const body: any = { ...query };
+  if (timeframe) body.timeframe = timeframe;
   const res = await fetch('https://scanner.tradingview.com/global/scan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(query),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`TV Scanner ${res.status}`);
   return res.json();
 }
 
-// Get OHLCV candles from TV Scanner (via Pine screener approach)
-// We use the screener to get multi-timeframe data + calculate SMC from TV candle data
-async function getForexData(symbol: string, market: string = 'cfd'): Promise<any> {
+// Get OHLCV + TA data for a symbol at a specific timeframe
+async function getForexData(symbol: string, market: string = 'cfd', tf?: string): Promise<any> {
   const result = await tvScan({
     columns: [
       'name', 'description', 'close', 'open', 'high', 'low', 'change',
@@ -30,7 +31,7 @@ async function getForexData(symbol: string, market: string = 'cfd'): Promise<any
     filter: [{ left: 'name', operation: 'equal', right: symbol }],
     markets: [market],
     range: [0, 1],
-  });
+  }, tf);
   const rows = result?.data ?? [];
   if (rows.length === 0) return null;
   const r = rows[0];
@@ -64,18 +65,17 @@ async function getForexData(symbol: string, market: string = 'cfd'): Promise<any
   };
 }
 
-// Get multiple timeframe data for structure analysis
-async function getMultiTFData(symbol: string, market: string): Promise<any> {
-  // Scan multiple timeframes by querying different columns
-  const [h4Data, d1Data] = await Promise.all([
-    // Daily
+// Get multi-timeframe data (daily + weekly context) for structure analysis
+async function getMultiTFData(symbol: string, market: string, tf?: string): Promise<any> {
+  const effectiveTf = tf || '1D';
+  const [tfData, weekData] = await Promise.all([
     tvScan({
       columns: ['name', 'close', 'open', 'high', 'low', 'change', 'Recommend.All', 'RSI', 'EMA20', 'EMA50', 'ATR', 'High.1M', 'Low.1M', 'High.1W', 'Low.1W', 'High.All', 'Low.All'],
       filter: [{ left: 'name', operation: 'equal', right: symbol }],
       markets: [market],
       range: [0, 1],
-    }),
-    // Get weekly data
+    }, effectiveTf),
+    // Always fetch weekly context for long-term structure
     tvScan({
       columns: ['name', 'close', 'open', 'high', 'low', 'Perf.W', 'Perf.1M', 'SMA200'],
       filter: [{ left: 'name', operation: 'equal', right: symbol }],
@@ -84,31 +84,31 @@ async function getMultiTFData(symbol: string, market: string): Promise<any> {
     }),
   ]);
 
-  const d = h4Data?.data?.[0];
-  const w = d1Data?.data?.[0];
+  const d = tfData?.data?.[0];
+  const w = weekData?.data?.[0];
 
   if (!d) return null;
 
-  const close = d.d?.[2] ?? 0;
-  const open = d.d?.[3] ?? 0;
-  const high = d.d?.[4] ?? 0;
-  const low = d.d?.[5] ?? 0;
+  const close = d.d?.[1] ?? 0;
+  const open = d.d?.[2] ?? 0;
+  const high = d.d?.[3] ?? 0;
+  const low = d.d?.[4] ?? 0;
 
   return {
     symbol: d.s,
     close, open, high, low,
-    change: d.d?.[6],
-    recommendation: d.d?.[7],
-    rsi: d.d?.[8],
-    ema20: d.d?.[9],
-    ema50: d.d?.[10],
-    atr: d.d?.[11],
+    change: d.d?.[5],
+    recommendation: d.d?.[6],
+    rsi: d.d?.[7],
+    ema20: d.d?.[8],
+    ema50: d.d?.[9],
+    atr: d.d?.[10],
     high1M: d.d?.[11],
     low1M: d.d?.[12],
     high1W: d.d?.[13],
     low1W: d.d?.[14],
-    highAll: d.d?.[16],
-    lowAll: d.d?.[17],
+    highAll: d.d?.[15],
+    lowAll: d.d?.[16],
     sma200: w?.d?.[7],
     perfWeek: w?.d?.[5],
     perfMonth: w?.d?.[6],
@@ -131,17 +131,13 @@ function analyzeSMC(data: any): any {
   const signals: string[] = [];
 
   // === STRUCTURE ANALYSIS ===
-  // Determine trend based on EMA alignment
   const emaBias = ema20 > ema50 ? 'bullish' : ema20 < ema50 ? 'bearish' : 'neutral';
   const priceVsEma = close > ema20 ? 'bullish' : 'bearish';
   const longTermBias = close > sma200 ? 'bullish' : 'bearish';
 
   // === ORDER BLOCKS ===
-  // Bullish OB: last bearish candle before bullish move (near swing lows)
-  // Bearish OB: last bullish candle before bearish move (near swing highs)
   const atrValue = atr ?? (high - low);
 
-  // Approximate order blocks from range data
   const bullishOB = {
     type: 'bullish_ob',
     zone: [low1W, low1W + atrValue * 0.5],
@@ -159,11 +155,9 @@ function analyzeSMC(data: any): any {
   levels.push(bullishOB, bearishOB);
 
   // === FAIR VALUE GAPS ===
-  // Approximate FVG detection from current candle vs ATR
   const bodySize = Math.abs(close - open);
   const isBullishCandle = close > open;
 
-  // If current candle body > 1.5 ATR, there's likely an FVG below (bullish)
   if (bodySize > atrValue * 1.5 && isBullishCandle) {
     levels.push({
       type: 'bullish_fvg',
@@ -174,7 +168,6 @@ function analyzeSMC(data: any): any {
     signals.push('Bullish FVG detected — potential retracement target');
   }
 
-  // If current candle body > 1.5 ATR bearish, FVG above
   if (bodySize > atrValue * 1.5 && !isBullishCandle) {
     levels.push({
       type: 'bearish_fvg',
@@ -217,7 +210,6 @@ function analyzeSMC(data: any): any {
   });
 
   // === LIQUIDITY POOLS ===
-  // Equal highs/lows = liquidity targets
   const eqHighTarget = high1W;
   const eqLowTarget = low1W;
 
@@ -261,14 +253,14 @@ function analyzeSMC(data: any): any {
   else bearScore += 1;
 
   // RSI
-  if (rsi < 30) bullScore += 2; // oversold = buy opportunity
-  else if (rsi > 70) bearScore += 2; // overbought = sell opportunity
+  if (rsi < 30) bullScore += 2;
+  else if (rsi > 70) bearScore += 2;
   else if (rsi < 45) bullScore += 1;
   else if (rsi > 55) bearScore += 1;
 
   // Premium/Discount
-  if (premiumDiscount === 'discount') bullScore += 1; // discount = buy zone
-  else bearScore += 1; // premium = sell zone
+  if (premiumDiscount === 'discount') bullScore += 1;
+  else bearScore += 1;
 
   // Recommendation
   if (data.recommendation > 0.3) bullScore += 2;
@@ -306,22 +298,22 @@ function analyzeSMC(data: any): any {
     signals.push('No clear structure — wait for BOS/CHoCH');
   }
 
-  // Risk levels
-  const slDistance = atrValue * 1.5;
+  // Risk levels — scalping/intraday style (tighter SL/TP)
+  const slDistance = atrValue * 0.75;
   let entryZone, sl, tp1, tp2, tp3;
 
   if (bias === 'bullish') {
     entryZone = close;
     sl = close - slDistance;
-    tp1 = close + atrValue * 1;
-    tp2 = close + atrValue * 2;
-    tp3 = high1W;
+    tp1 = close + atrValue * 0.5;
+    tp2 = close + atrValue * 1;
+    tp3 = close + atrValue * 1.5;
   } else if (bias === 'bearish') {
     entryZone = close;
     sl = close + slDistance;
-    tp1 = close - atrValue * 1;
-    tp2 = close - atrValue * 2;
-    tp3 = low1W;
+    tp1 = close - atrValue * 0.5;
+    tp2 = close - atrValue * 1;
+    tp3 = close - atrValue * 1.5;
   }
 
   return {
@@ -335,7 +327,7 @@ function analyzeSMC(data: any): any {
     levels: levels.sort((a, b) => {
       const aMid = (a.zone[0] + a.zone[1]) / 2;
       const bMid = (b.zone[0] + b.zone[1]) / 2;
-      return bMid - aMid; // highest first
+      return bMid - aMid;
     }),
     tradeSetup: bias !== 'neutral' ? {
       direction: bias,
@@ -362,44 +354,47 @@ function analyzeSMC(data: any): any {
   };
 }
 
-// GET /api/smc/analyze/:symbol — full SMC analysis
+// GET /api/smc/analyze/:symbol — full SMC analysis (optional ?tf=1D|4H|1H)
 smcRoutes.get('/analyze/:symbol', async (c) => {
   const symbol = c.req.param('symbol').toUpperCase().replace('/', '');
+  const tf = c.req.query('tf') || '1D';
   const cache = new Cache(c.env.AEGIS_CACHE, 120);
 
   try {
-    const data = await cache.getOrSet(`smc:${symbol}`, async () => {
+    const data = await cache.getOrSet(`smc:${symbol}:${tf}`, async () => {
       const market = (symbol === 'XAUUSD' || symbol === 'XAU') ? 'cfd' : 'forex';
-      const rawData = await getMultiTFData(symbol, market);
+      const rawData = await getMultiTFData(symbol, market, tf);
       if (!rawData) return null;
       return analyzeSMC(rawData);
     }, { ttl: 120 });
 
     if (!data) return c.json({ error: 'Symbol not found' }, 404);
-    return c.json({ status: 'ok', data });
+    return c.json({ status: 'ok', data, tf });
   } catch (e: any) {
     return c.json({ error: e.message }, 502);
   }
 });
 
-// GET /api/smc/batch — SMC analysis for multiple pairs
+// GET /api/smc/batch — SMC analysis for multiple pairs (optional ?tf=1D|4H|1H)
 smcRoutes.get('/batch', async (c) => {
+  const tf = c.req.query('tf') || '1D';
   const cache = new Cache(c.env.AEGIS_CACHE, 120);
 
   try {
-    const data = await cache.getOrSet('smc:batch', async () => {
+    const data = await cache.getOrSet(`smc:batch:${tf}`, async () => {
       const symbols = [
         { name: 'XAUUSD', label: 'XAU/USD', market: 'cfd' },
         { name: 'EURUSD', label: 'EUR/USD', market: 'forex' },
         { name: 'GBPUSD', label: 'GBP/USD', market: 'forex' },
         { name: 'USDJPY', label: 'USD/JPY', market: 'forex' },
         { name: 'USDIDR', label: 'USD/IDR', market: 'forex' },
+        { name: 'USDCHF', label: 'USD/CHF', market: 'forex' },
       ];
 
       const results = await Promise.all(
         symbols.map(async (s) => {
           try {
-            const rawData = await getMultiTFData(s.name, s.market);
+            const rawData = await getMultiTFData(s.name, s.market, tf);
             const analysis = rawData ? analyzeSMC(rawData) : null;
             return analysis ? { symbol: s.label, ...analysis } : null;
           } catch {
@@ -411,7 +406,7 @@ smcRoutes.get('/batch', async (c) => {
       return results.filter(Boolean);
     }, { ttl: 120 });
 
-    return c.json({ status: 'ok', data });
+    return c.json({ status: 'ok', data, tf });
   } catch (e: any) {
     return c.json({ error: e.message }, 502);
   }

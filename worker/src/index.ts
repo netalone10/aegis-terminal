@@ -53,6 +53,16 @@ async function handleScheduled(event: ScheduledEvent, env: Bindings) {
       console.log('Cron: Macro indicators cached');
     } catch (e) { console.error('Cron macro failed:', e); }
   }
+
+  // Pre-warm forex + SMC caches (parallel)
+  const warmUrls = [
+    'https://aegisterminal.app/api/forex/live',
+    'https://aegisterminal.app/api/forex/ticker',
+    'https://aegisterminal.app/api/smc/batch',
+  ];
+  await Promise.allSettled(warmUrls.map(url =>
+    fetch(url).then(r => console.log(`Cron warm: ${url} ${r.status}`)).catch(e => console.error(`Cron warm fail: ${url}`, e))
+  ));
 }
 
 export default {

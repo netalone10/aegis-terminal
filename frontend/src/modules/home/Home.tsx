@@ -1,307 +1,169 @@
+import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { TrendingUp, TrendingDown, ExternalLink, Newspaper, Zap, Activity, ArrowUpRight, DollarSign, Flame } from 'lucide-react'
 import { api } from '../../lib/api'
 
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`skeleton ${className}`} />
-}
+const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 
-// XAU/USD Hero Card — biggest, most prominent
-function XauHeroCard() {
-  const { data: forexData, isLoading } = useQuery({
-    queryKey: ['forex-live'],
-    queryFn: () => api<any>('/api/forex/live'),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-    retry: false,
-  })
+const modules = [
+  { code: 'SMC', title: 'SMC / ICT Engine', desc: 'Bias, liquidity pool, order block, FVG, premium discount, killzone.', to: '/decision' },
+  { code: 'MKT', title: 'Live Market Workspace', desc: 'Quote forex, gold, crypto, indeks, dan market snapshot lintas aset.', to: '/market' },
+  { code: 'MAC', title: 'Macro Regime', desc: 'Rates, inflation, growth, policy, dan risk regime untuk top-down context.', to: '/macro' },
+  { code: 'CHT', title: 'Chart Lab', desc: 'Charting workspace untuk validasi struktur, level, dan execution zone.', to: '/chart' },
+  { code: 'SCN', title: 'Scanner', desc: 'Filter setup, watchlist, dan kandidat trade sesuai rule engine.', to: '/scanner' },
+  { code: 'JRN', title: 'Journal', desc: 'Catat eksekusi, invalidation, result, dan lesson dari tiap trade.', to: '/journal' },
+  { code: 'AI', title: 'AI Assistant', desc: 'Ringkas context pasar, tanya setup, dan buat decision checklist.', to: '/ai' },
+  { code: 'RTE', title: 'Rates & Bonds', desc: 'US yields, curve, Fed context, dan pressure ke gold / USD.', to: '/rates' },
+]
 
-  const xau = (forexData?.pairs ?? []).find((p: any) => p.symbol === 'XAU/USD')
-
-  if (isLoading) return (
-    <div className="glass p-6 col-span-2">
-      <Skeleton className="w-20 h-3 mb-3" />
-      <Skeleton className="w-48 h-10 mb-3" />
-      <Skeleton className="w-full h-16" />
-    </div>
-  )
-
-  if (!xau) return null
-
-  const price = xau.price ?? 0
-  const rsi = xau.rsi ?? 50
-  const macdLine = xau.macdLine ?? 0
-  const macdSignal = xau.macdSignal ?? 0
-  const trend = xau.recommendation > 0 ? 'bullish' : xau.recommendation < -0.3 ? 'bearish' : 'neutral'
-  const isUp = trend === 'bullish'
-  const ema20 = xau.ema20 ?? 0
-  const ema50 = xau.ema50 ?? 0
-  const sma200 = xau.sma200 ?? 0
-
-  return (
-    <div className="glass glass-hover gradient-border p-6 col-span-2 relative overflow-hidden">
-      {/* Ambient glow */}
-      <div className="absolute -top-20 -right-20 w-60 h-60 bg-primary/5 rounded-full blur-3xl" />
-      
-      <div className="relative">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-xl bg-warning/10 border border-warning/20 flex items-center justify-center">
-              <Flame size={18} className="text-warning" />
-            </div>
-            <div>
-              <span className="text-[10px] text-fg-muted font-mono uppercase tracking-widest">XAU/USD</span>
-              <div className="text-[11px] text-fg-muted">Gold Spot</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`chip ${isUp ? 'chip-primary' : trend === 'bearish' ? 'chip-danger' : 'chip-warning'}`}>
-              {trend.toUpperCase()}
-            </span>
-            <span className={`chip ${xau.changePct > 0 ? 'chip-primary' : 'chip-danger'}`}>
-              {xau.changePct > 0 ? '+' : ''}{(xau.changePct ?? 0).toFixed(2)}%
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-end gap-4 mb-5">
-          <span className="text-4xl font-bold font-mono tracking-tight">${price.toFixed(2)}</span>
-          <span className={`text-lg font-mono font-semibold mb-1 ${isUp ? 'text-primary' : 'text-danger'}`}>
-            {isUp ? '▲' : '▼'}
-          </span>
-        </div>
-
-        {/* TA Grid */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-surface/40 rounded-lg p-3 border border-border/20">
-            <span className="text-[10px] text-fg-muted font-mono">RSI (14)</span>
-            <div className={`text-lg font-mono font-bold mt-1 ${rsi > 70 ? 'text-danger' : rsi < 30 ? 'text-primary' : 'text-fg'}`}>
-              {rsi.toFixed(1)}
-            </div>
-            <span className="text-[9px] text-fg-placeholder font-mono">{rsi > 70 ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : 'NEUTRAL'}</span>
-          </div>
-          <div className="bg-surface/40 rounded-lg p-3 border border-border/20">
-            <span className="text-[10px] text-fg-muted font-mono">MACD</span>
-            <div className={`text-lg font-mono font-bold mt-1 ${macdLine > macdSignal ? 'text-primary' : 'text-danger'}`}>
-              {(macdLine - macdSignal).toFixed(2)}
-            </div>
-            <span className="text-[9px] text-fg-placeholder font-mono">{macdLine > macdSignal ? 'BULLISH' : 'BEARISH'}</span>
-          </div>
-          <div className="bg-surface/40 rounded-lg p-3 border border-border/20">
-            <span className="text-[10px] text-fg-muted font-mono">EMA 20/50</span>
-            <div className="text-sm font-mono font-bold mt-1 text-fg">
-              {ema20.toFixed(0)} / {ema50.toFixed(0)}
-            </div>
-            <span className={`text-[9px] font-mono ${ema20 > ema50 ? 'text-primary' : 'text-danger'}`}>
-              {ema20 > ema50 ? 'GOLDEN CROSS' : 'DEATH CROSS'}
-            </span>
-          </div>
-          <div className="bg-surface/40 rounded-lg p-3 border border-border/20">
-            <span className="text-[10px] text-fg-muted font-mono">SMA 200</span>
-            <div className="text-sm font-mono font-bold mt-1 text-fg">
-              {sma200.toFixed(0)}
-            </div>
-            <span className={`text-[9px] font-mono ${price > sma200 ? 'text-primary' : 'text-danger'}`}>
-              {price > sma200 ? 'ABOVE' : 'BELOW'} LONG-TERM
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Forex pairs grid — shared forex data
-function ForexPairCard({ symbol, name }: { symbol: string; name: string }) {
-  const { data: forexData, isLoading } = useQuery({
-    queryKey: ['forex-live'],
-    queryFn: () => api<any>('/api/forex/live'),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-    retry: false,
-  })
-
-  const pair = (forexData?.pairs ?? []).find((p: any) => p.symbol === symbol)
-
-  if (isLoading) return (
-    <div className="glass p-4">
-      <Skeleton className="w-16 h-3 mb-2" />
-      <Skeleton className="w-24 h-6 mb-2" />
-      <Skeleton className="w-20 h-3" />
-    </div>
-  )
-
-  if (!pair) return null
-
-  const price = pair.price ?? 0
-  const rsi = pair.rsi ?? 50
-  const change = pair.changePct ?? 0
-  const isUp = change >= 0
-
-  return (
-    <div className="glass glass-hover gradient-border p-4 group cursor-pointer">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] text-fg-muted font-mono uppercase tracking-widest">{symbol}</span>
-        <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isUp ? 'bg-primary/10' : 'bg-danger/10'}`}>
-          {isUp ? <TrendingUp size={13} className="text-primary" /> : <TrendingDown size={13} className="text-danger" />}
-        </div>
-      </div>
-      <div className="text-xl font-bold font-mono tracking-tight">
-        ${symbol.includes('JPY') || symbol.includes('IDR') ? price.toFixed(2) : price.toFixed(4)}
-      </div>
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-[10px] text-fg-muted">{name}</span>
-        <div className="flex items-center gap-2">
-          <span className={`text-[10px] font-mono font-semibold ${isUp ? 'text-primary' : 'text-danger'}`}>
-            {isUp ? '+' : ''}{change.toFixed(2)}%
-          </span>
-          <span className={`text-[10px] font-mono ${rsi > 60 ? 'text-primary' : rsi < 40 ? 'text-danger' : 'text-fg-muted'}`}>
-            RSI {rsi.toFixed(0)}
-          </span>
-        </div>
-      </div>
-    </div>
-  )
+function BiasBadge({ bias }: { bias?: string }) {
+  if (bias === 'bullish') return <span className="badge-bull">Bullish</span>
+  if (bias === 'bearish') return <span className="badge-bear">Bearish</span>
+  return <span className="badge-neutral">Neutral</span>
 }
 
 export default function Home() {
-  const { data: newsData, isLoading: newsLoading } = useQuery({
-    queryKey: ['home-news'],
-    queryFn: () => api<any[]>('/api/news/latest'),
-    staleTime: 60_000,
-    retry: false,
-  })
-
-  const { data: regimeData } = useQuery({
-    queryKey: ['home-regime'],
-    queryFn: () => api<any>('/api/macro/regime'),
-    staleTime: 120_000,
+  const { data: smcData } = useQuery<any>({
+    queryKey: ['smc-batch'],
+    queryFn: () => api('/api/smc/batch'),
+    staleTime: 300_000,
     refetchInterval: 120_000,
     retry: false,
   })
 
-  const newsItems = (newsData ?? []).slice(0, 6).map((n: any) => ({
+  const { data: newsData } = useQuery<any[]>({
+    queryKey: ['home-news'],
+    queryFn: () => api('/api/news/latest'),
+    staleTime: 300_000,
+    retry: false,
+  })
+
+  const pairs = Array.isArray(smcData) ? smcData : (smcData?.data ?? [])
+  const xau = pairs.find((p: any) => p.symbol === 'XAU/USD')
+  const eur = pairs.find((p: any) => p.symbol === 'EUR/USD')
+  const gbp = pairs.find((p: any) => p.symbol === 'GBP/USD')
+  const mainPairs = [xau, eur, gbp].filter(Boolean)
+
+  const newsItems = (newsData ?? []).slice(0, 4).map((n: any) => ({
     title: n.title ?? 'Untitled',
-    source: n.source ?? 'Unknown',
-    time: n.pubDate ? new Date(n.pubDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—',
+    source: n.source ?? 'Market',
+    time: n.pubDate ? new Date(n.pubDate).toLocaleDateString('id-ID', { month: 'short', day: 'numeric' }) : '—',
     link: n.link,
   }))
 
-  const forexPairs = [
-    { symbol: 'EUR/USD', name: 'Euro / Dollar' },
-    { symbol: 'GBP/USD', name: 'Pound / Dollar' },
-    { symbol: 'USD/JPY', name: 'Dollar / Yen' },
-    { symbol: 'USD/IDR', name: 'Dollar / Rupiah' },
-  ]
-
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Trading Dashboard</h1>
-          <p className="text-[13px] text-fg-muted mt-1">XAU/USD & Forex — Real-time analysis</p>
-        </div>
-        <div className="flex items-center gap-2 text-[11px] text-fg-muted font-mono">
-          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
-          <span>Markets Open</span>
-        </div>
-      </div>
+    <div>
+      <section className="kt-hero">
+        <div className="kt-hero-copy">
+          <div className="kt-eyebrow"><b>V3.0</b> Telah Hadir</div>
+          <h1 className="kt-hero-title">
+            Satu terminal untuk membaca <span>macro, flow, SMC, dan eksekusi.</span>
+          </h1>
+          <p className="kt-hero-sub">
+            Aegis Terminal menggabungkan live market data, SMC/ICT analysis, macro regime, dan workflow trading dalam satu workspace ringan untuk forex dan XAU/USD.
+          </p>
+          <div className="kt-hero-actions">
+            <NavLink className="kt-btn kt-btn-primary" to="/decision">Buka SMC Engine</NavLink>
+            <NavLink className="kt-btn" to="/market">Lihat Market</NavLink>
+            <NavLink className="kt-btn" to="/macro">Macro Regime</NavLink>
+          </div>
 
-      {/* XAU Hero + Regime */}
-      <div className="grid grid-cols-3 gap-4">
-        <XauHeroCard />
-        
-        {/* Regime Card */}
-        <div className="glass glass-hover gradient-border p-5 flex flex-col justify-between">
+          <div className="kt-mini-stats">
+            <div className="kt-mini-stat"><b>{pairs.length || 5}</b><span>Pairs monitored</span></div>
+            <div className="kt-mini-stat"><b>{xau?.bias?.toUpperCase?.() ?? 'NEUTRAL'}</b><span>XAU/USD bias</span></div>
+            <div className="kt-mini-stat"><b>{xau?.killZone?.replace('_', ' ')?.toUpperCase?.() ?? 'LIVE'}</b><span>Current session</span></div>
+          </div>
+        </div>
+
+        <div className="kt-terminal-card">
+          <div className="kt-terminal-bar">
+            <div className="kt-dots"><i /><i /><i /></div>
+            <div className="kt-terminal-code">TERMINAL PREVIEW · {today}</div>
+          </div>
+          <div className="kt-terminal-body">
+            {(mainPairs.length ? mainPairs : [
+              { symbol: 'XAU/USD', bias: 'neutral', confidence: 45, premiumDiscount: 'discount' },
+              { symbol: 'EUR/USD', bias: 'bullish', confidence: 90, premiumDiscount: 'discount' },
+              { symbol: 'GBP/USD', bias: 'bullish', confidence: 90, premiumDiscount: 'discount' },
+            ]).map((pair: any, idx: number) => (
+              <div className="kt-terminal-row" key={pair.symbol}>
+                <div className="code">{String(idx + 1).padStart(2, '0')}</div>
+                <div>
+                  <b>{pair.symbol}</b><br />
+                  <span>{pair.premiumDiscount?.toUpperCase?.() ?? 'ZONE'} · {pair.killZone?.replace('_', ' ')?.toUpperCase?.() ?? 'KILLZONE'}</span>
+                </div>
+                <em className={pair.bias === 'bearish' ? 'dn' : pair.bias === 'bullish' ? 'up' : ''}>{pair.confidence ?? 0}%</em>
+              </div>
+            ))}
+            <div className="kt-gridline" />
+          </div>
+        </div>
+      </section>
+
+      <section className="kt-section">
+        <div className="kt-section-head">
           <div>
-            <span className="text-[10px] text-fg-muted font-mono uppercase tracking-widest">Macro Regime</span>
-            <h3 className="text-lg font-bold text-primary mt-2">{regimeData?.regime?.replace('_', ' ').toUpperCase() ?? 'LOADING'}</h3>
-            <p className="text-[11px] text-fg-secondary mt-1">Risk: {regimeData?.riskLevel?.toUpperCase() ?? '—'}</p>
+            <h2>Fitur lengkap, tetap clean.</h2>
+            <p>Delapan area inti untuk riset top-down sampai eksekusi.</p>
           </div>
-          <div className="space-y-2 mt-4">
-            <div className="flex justify-between text-[11px]">
-              <span className="text-fg-muted font-mono">VIX</span>
-              <span className="font-mono font-semibold">{regimeData?.signals?.vix?.current?.toFixed(1) ?? '—'}</span>
-            </div>
-            <div className="flex justify-between text-[11px]">
-              <span className="text-fg-muted font-mono">S&P 500</span>
-              <span className="font-mono font-semibold">{regimeData?.signals?.sp500?.current?.toLocaleString() ?? '—'}</span>
-            </div>
-            <div className="flex justify-between text-[11px]">
-              <span className="text-fg-muted font-mono">30D Return</span>
-              <span className={`font-mono font-semibold ${(regimeData?.signals?.sp500?.return30d ?? 0) >= 0 ? 'text-primary' : 'text-danger'}`}>
-                {regimeData?.signals?.sp500?.return30d != null ? `${regimeData.signals.sp500.return30d > 0 ? '+' : ''}${regimeData.signals.sp500.return30d}%` : '—'}
-              </span>
-            </div>
-          </div>
+          <span className="kt-pill">8 Core Areas</span>
         </div>
-      </div>
+        <div className="kt-module-grid">
+          {modules.map((m) => (
+            <NavLink className="kt-module" to={m.to} key={m.code}>
+              <div className="code">{m.code}</div>
+              <h3>{m.title}</h3>
+              <p>{m.desc}</p>
+            </NavLink>
+          ))}
+        </div>
+      </section>
 
-      {/* Forex Pairs Grid */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <DollarSign size={14} className="text-primary" />
-          <span className="text-[13px] font-semibold">Forex Pairs</span>
-          <span className="text-[10px] text-fg-muted font-mono ml-auto">Daily timeframe</span>
-        </div>
-        <div className="grid grid-cols-4 gap-4">
-          {forexPairs.map(pair => <ForexPairCard key={pair.symbol} {...pair} />)}
-        </div>
-      </div>
-
-      {/* News + Quick Actions */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2 glass overflow-hidden">
-          <div className="flex items-center gap-2 px-5 py-3 border-b border-border/30">
-            <Newspaper size={14} className="text-info" />
-            <span className="text-[13px] font-medium">Headlines</span>
+      <section className="kt-section">
+        <div className="kt-section-head">
+          <div>
+            <h2>Daily Research.</h2>
+            <p>Bias utama dan headline context sesi berjalan.</p>
           </div>
-          <div className="divide-y divide-border/20">
-            {newsLoading ? (
-              [...Array(4)].map((_, i) => <Skeleton key={i} className="h-12 mx-4 my-2" />)
-            ) : newsItems.length > 0 ? (
-              newsItems.map((item: any, i: number) => (
-                <a key={i} href={item.link} target="_blank" rel="noopener noreferrer" className="block px-5 py-3 hover:bg-primary/[0.03] transition-colors group">
-                  <p className="text-[12px] text-fg leading-relaxed group-hover:text-primary transition-colors line-clamp-2">{item.title}</p>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <span className="text-[10px] text-fg-muted font-mono">{item.source}</span>
-                    <span className="text-[10px] text-fg-placeholder">•</span>
-                    <span className="text-[10px] text-fg-placeholder font-mono">{item.time}</span>
-                    <ExternalLink size={10} className="ml-auto text-fg-placeholder opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
-                </a>
-              ))
-            ) : (
-              <div className="px-4 py-6 text-center text-[11px] text-fg-placeholder font-mono">No news available</div>
-            )}
+          <span className="kt-pill">Auto Refresh</span>
+        </div>
+        <div className="kt-feature-grid">
+          {(mainPairs.length ? mainPairs : []).map((pair: any) => (
+            <div className="kt-feature" key={pair.symbol}>
+              <div className="code">{pair.symbol}</div>
+              <h3><BiasBadge bias={pair.bias} /> <span style={{ marginLeft: 8 }}>{pair.confidence}%</span></h3>
+              <p>{(pair.signals ?? ['Waiting for BOS / CHoCH confirmation']).slice(0, 2).join(' · ')}</p>
+            </div>
+          ))}
+          <div className="kt-feature">
+            <div className="code">MACRO</div>
+            <h3>Macro View</h3>
+            <p>Fed & ECB hawkish. Gold sensitive to real yield, USD, and geopolitical risk premium.</p>
           </div>
         </div>
+      </section>
 
-        {/* Quick Actions */}
-        <div className="space-y-3">
-          <a href="/chart" className="flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-primary to-primary-hover text-canvas text-[13px] font-semibold rounded-xl hover:shadow-[0_0_24px_rgba(62,207,142,0.3)] transition-all group">
-            <Activity size={16} />
-            <span>Open Chart</span>
-            <ArrowUpRight size={14} className="ml-auto opacity-60 group-hover:opacity-100 transition-opacity" />
-          </a>
-          <a href="/decision" className="flex items-center gap-3 px-5 py-4 glass text-[13px] text-fg-secondary rounded-xl hover:text-fg hover:border-primary/30 transition-all group">
-            <Zap size={16} />
-            <span>Decision Engine</span>
-            <ArrowUpRight size={14} className="ml-auto opacity-0 group-hover:opacity-60 transition-opacity" />
-          </a>
-          <a href="/journal" className="flex items-center gap-3 px-5 py-4 glass text-[13px] text-fg-secondary rounded-xl hover:text-fg hover:border-primary/30 transition-all group">
-            <DollarSign size={16} />
-            <span>Trading Journal</span>
-            <ArrowUpRight size={14} className="ml-auto opacity-0 group-hover:opacity-60 transition-opacity" />
-          </a>
-          <a href="/rates" className="flex items-center gap-3 px-5 py-4 glass text-[13px] text-fg-secondary rounded-xl hover:text-fg hover:border-primary/30 transition-all group">
-            <TrendingUp size={16} />
-            <span>Rates & Bonds</span>
-            <ArrowUpRight size={14} className="ml-auto opacity-0 group-hover:opacity-60 transition-opacity" />
-          </a>
-        </div>
-      </div>
+      {newsItems.length > 0 && (
+        <section className="kt-section">
+          <div className="kt-section-head">
+            <div>
+              <h2>AI Context Headlines.</h2>
+              <p>Latest market headlines for session awareness.</p>
+            </div>
+          </div>
+          <div className="kt-card">
+            {newsItems.map((item: any, i: number) => (
+              <a className="kt-terminal-row" href={item.link} target="_blank" rel="noopener noreferrer" key={i} style={{ padding: '14px 18px' }}>
+                <div className="code">N{String(i + 1).padStart(2, '0')}</div>
+                <div>
+                  <b>{item.title}</b><br />
+                  <span>{item.source} · {item.time}</span>
+                </div>
+                <em>↗</em>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }

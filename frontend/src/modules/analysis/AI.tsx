@@ -28,104 +28,102 @@ const MOCK_MESSAGES: Message[] = [
 • P/E: 22.4x (sector avg 18x) — premium justified by ROE 24.1%
 • Revenue Growth: +12.3% YoY
 • D/E: 0.8x — conservative leverage
-• NIM: 5.8% — best-in-class among IDX banks
-• Foreign flow: net buy Rp 245B this week
 
-**Verdict:** Bullish bias. Golden cross confirmed on weekly. Enter on pullback to 9,650-9,720 zone with SL below 9,400. Target 10,200 (R:R 2.2:1).`,
+**Signals to Watch**
+• Golden cross forming (SMA20 crossing SMA50) — confirmation at 9,780
+• Foreign net buy +Rp 280B last 5 days — accumulation pattern
+• Earnings in 2 weeks — potential catalyst
+
+**Verdict:** Bullish bias. Entry zone 9,650-9,780 on pullback. Target 10,200. SL 9,400.`,
   },
-  { id: 3, role: 'user', content: 'What about the banking sector overall? Any rotation signals?' },
 ]
 
-function MessageBubble({ msg }: { msg: Message }) {
-  const isUser = msg.role === 'user'
-  return (
-    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div className={`shrink-0 w-9 h-9 rounded-xl flex items-center justify-center border ${
-        isUser ? 'bg-info/10 border-info/20' : 'bg-primary/10 border-primary/20'
-      }`}>
-        {isUser ? <User size={14} className="text-info" /> : <Bot size={14} className="text-primary" />}
-      </div>
-      <div className={`max-w-[75%] rounded-xl px-5 py-3.5 ${
-        isUser
-          ? 'glass border-border/40'
-          : 'bg-surface-dark/60 border border-border/20 backdrop-blur-sm'
-      }`}>
-        <div className="flex items-center gap-2 mb-2">
-          <span className={`text-[11px] font-semibold ${isUser ? 'text-info' : 'text-primary'}`}>
-            {isUser ? 'You' : 'Aegis AI'}
-          </span>
-          <span className="text-[10px] text-fg-placeholder font-mono">just now</span>
-        </div>
-        <div className="text-[13px] text-fg-secondary leading-relaxed whitespace-pre-wrap">
-          {msg.content.split('\n').map((line, i) => {
-            if (line.startsWith('**') && line.endsWith('**')) {
-              return <p key={i} className="font-bold text-fg mt-3 mb-1.5 text-[14px]">{line.replace(/\*\*/g, '')}</p>
-            }
-            if (line.startsWith('•')) {
-              return <p key={i} className="pl-3 mt-0.5">{line}</p>
-            }
-            return <p key={i}>{line}</p>
-          })}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function AI() {
-  const [messages] = useState<Message[]>(MOCK_MESSAGES)
+  const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES)
   const [input, setInput] = useState('')
-  const [streaming] = useState(false)
+  const [isTyping, setIsTyping] = useState(false)
+
+  const handleSend = () => {
+    if (!input.trim()) return
+    const userMsg: Message = { id: Date.now(), role: 'user', content: input }
+    setMessages(prev => [...prev, userMsg])
+    setInput('')
+    setIsTyping(true)
+
+    setTimeout(() => {
+      const aiMsg: Message = {
+        id: Date.now() + 1, role: 'assistant',
+        content: 'Analyzing your request... This is a placeholder response. The AI module will be connected to a real LLM endpoint in a future update.',
+      }
+      setMessages(prev => [...prev, aiMsg])
+      setIsTyping(false)
+    }, 1500)
+  }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-surface-dark/40 backdrop-blur-sm">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center">
-          <Sparkles size={14} className="text-primary" />
+    <div>
+      <div className="kt-route-head">
+        <div>
+          <div className="kt-kicker">AI Assistant</div>
+          <h1>AI Context</h1>
+          <p>Market context, setup analysis, and decision checklists</p>
         </div>
-        <span className="text-[13px] font-semibold text-fg">AI Assistant</span>
-        <span className="text-[11px] text-fg-muted font-mono ml-1">· powered by Aegis</span>
-        <div className="ml-auto flex items-center gap-1.5 text-[11px] text-fg-muted font-mono">
-          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
-          <span>Online</span>
+        <div className="kt-route-actions">
+          <Sparkles size={12} style={{ color: 'var(--kt-gold)' }} />
+          <span>GPT-4 Powered</span>
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-auto p-5 space-y-5">
-        {messages.map(msg => (
-          <MessageBubble key={msg.id} msg={msg} />
-        ))}
-        {streaming && (
-          <div className="flex items-center gap-2 text-[12px] text-fg-muted">
-            <Loader2 size={14} className="animate-spin text-primary" />
-            <span>Aegis is thinking...</span>
+      <div className="kt-panel">
+        <div className="kt-panel-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Bot size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ color: 'var(--kt-text)', fontSize: 'var(--md)', fontWeight: 600 }}>Conversation</span>
           </div>
-        )}
+          <span className="kt-pill">{messages.length} messages</span>
+        </div>
+        <div className="kt-panel-body" style={{ minHeight: 400, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
+            {messages.map(msg => (
+              <div key={msg.id} className="kt-chat-msg">
+                <div className={`kt-chat-avatar ${msg.role}`}>
+                  {msg.role === 'user' ? <User size={13} /> : <Bot size={13} />}
+                </div>
+                <div className="kt-chat-content">
+                  {msg.content.split('\n').map((line, i) => (
+                    <p key={i} style={{ marginBottom: line ? 6 : 0 }}>{line || '\u00A0'}</p>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {isTyping && (
+              <div className="kt-chat-msg">
+                <div className="kt-chat-avatar bot"><Bot size={13} /></div>
+                <div className="kt-chat-content" style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--kt-muted)' }}>
+                  <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                  Thinking...
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--kt-border-soft)', paddingTop: 14 }}>
+            <input
+              className="kt-input"
+              style={{ flex: 1 }}
+              placeholder="Ask about market context, setups, or checklists..."
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSend()}
+            />
+            <button className="kt-btn kt-btn-primary" onClick={handleSend}>
+              <Send size={13} />
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Input bar */}
-      <div className="border-t border-border/40 bg-surface-dark/40 backdrop-blur-sm p-4">
-        <div className="flex items-center gap-3">
-          <input
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="Ask about any stock, strategy, or market insight..."
-            className="flex-1 px-4 py-3 glass rounded-xl text-[13px] text-fg placeholder:text-fg-placeholder focus:outline-none focus:border-primary/50 transition-colors"
-          />
-          <button
-            className="p-3 bg-gradient-to-r from-primary to-primary-hover text-canvas rounded-xl hover:shadow-[0_0_15px_rgba(62,207,142,0.3)] transition-all disabled:opacity-40"
-            disabled={!input.trim()}
-          >
-            <Send size={16} />
-          </button>
-        </div>
-        <p className="text-[10px] text-fg-placeholder mt-2 text-center font-mono">
-          AI responses are for informational purposes only. Not financial advice.
-        </p>
-      </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

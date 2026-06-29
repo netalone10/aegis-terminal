@@ -1,15 +1,18 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Crosshair, TrendingUp, TrendingDown, AlertTriangle, Minus, Shield, Target, Clock } from 'lucide-react'
+import { Crosshair, Clock, TrendingUp, TrendingDown, Minus, Target, Layers } from 'lucide-react'
 import { api } from '../../lib/api'
 
-type SMCLevel = {
-  type: string
-  zone: [number, number]
-  label: string
-  strength: string
-}
+const TIMEFRAMES = [
+  { key: '1D', label: 'Daily' },
+  { key: '4H', label: '4H' },
+  { key: '1H', label: '1H' },
+] as const
+
+type TFKey = typeof TIMEFRAMES[number]['key']
 
 type SMCData = {
+  symbol: string
   bias: string
   confidence: number
   premiumDiscount: string
@@ -17,7 +20,7 @@ type SMCData = {
   bullScore: number
   bearScore: number
   signals: string[]
-  levels: SMCLevel[]
+  levels: { type: string; zone: [number, number]; label: string; strength: string }[]
   tradeSetup: {
     direction: string
     entry: number
@@ -42,200 +45,299 @@ type SMCData = {
   }
 }
 
-type SMCSymbol = {
-  symbol: string
-} & SMCData
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`skeleton ${className}`} />
+function BiasIcon({ bias }: { bias: string }) {
+  if (bias === 'bullish') return <TrendingUp size={16} style={{ color: 'var(--kt-up)' }} />
+  if (bias === 'bearish') return <TrendingDown size={16} style={{ color: 'var(--kt-dn)' }} />
+  return <Minus size={16} style={{ color: 'var(--kt-gold)' }} />
 }
 
-const levelColors: Record<string, string> = {
-  bullish_ob: 'border-primary/40 bg-primary/5',
-  bearish_ob: 'border-danger/40 bg-danger/5',
-  bullish_fvg: 'border-primary/30 bg-primary/3',
-  bearish_fvg: 'border-danger/30 bg-danger/3',
-  equilibrium: 'border-warning/30 bg-warning/5',
-  fib_618: 'border-info/30 bg-info/5',
-  fib_382: 'border-info/30 bg-info/5',
-  liquidity_high: 'border-danger/20 bg-danger/3',
-  liquidity_low: 'border-primary/20 bg-primary/3',
+function getDecimals(symbol: string): number {
+  if (symbol.includes('JPY') || symbol.includes('IDR')) return 2
+  if (symbol.includes('XAU')) return 2
+  return 5  // forex pairs: 5 decimals
 }
 
-function BiasCard({ data }: { data: SMCSymbol }) {
-  const biasColor = data.bias === 'bullish' ? 'text-primary' : data.bias === 'bearish' ? 'text-danger' : 'text-warning'
-  const biasBg = data.bias === 'bullish' ? 'bg-primary/10 border-primary/30' : data.bias === 'bearish' ? 'bg-danger/10 border-danger/30' : 'bg-warning/10 border-warning/30'
+function fmt(val: number, symbol: string): string {
+  return val.toFixed(getDecimals(symbol))
+}
+
+function SMCPanel({ data }: { data: SMCData }) {
+  const biasClass = data.bias === 'bullish' ? 'badge-bull' : data.bias === 'bearish' ? 'badge-bear' : 'badge-neutral'
+  const pdColor = data.premiumDiscount === 'premium' ? 'var(--kt-dn)' : 'var(--kt-up)'
+  const dec = getDecimals(data.symbol)
+
+  const levelClass = (type: string) => {
+    if (type === 'bullish_ob') return 'ob-bull'
+    if (type === 'bearish_ob') return 'ob-bear'
+    if (type === 'bullish_fvg') return 'fvg-bull'
+    if (type === 'bearish_fvg') return 'fvg-bear'
+    if (type === 'equilibrium') return 'eq'
+    if (type.startsWith('fib')) return 'fib'
+    if (type.startsWith('liquidity')) return 'liq'
+    return ''
+  }
 
   return (
-    <div className="glass glass-hover gradient-border p-5">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[11px] text-fg-muted font-mono uppercase tracking-widest">{data.symbol}</span>
-        <span className={`chip ${data.bias === 'bullish' ? 'chip-primary' : data.bias === 'bearish' ? 'chip-danger' : 'chip-warning'}`}>
-          {data.bias.toUpperCase()}
-        </span>
-      </div>
-      <div className="flex items-center gap-3 mb-3">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${biasBg} border`}>
-          {data.bias === 'bullish' ? <TrendingUp size={20} className="text-primary" /> :
-           data.bias === 'bearish' ? <TrendingDown size={20} className="text-danger" /> :
-           <Minus size={20} className="text-warning" />}
+    <div className="kt-panel" id={`smc-${data.symbol.replace('/', '-')}`}>
+      <div className="kt-panel-head">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span className="code" style={{ fontSize: 'var(--md)', fontWeight: 600 }}>{data.symbol}</span>
+          <span className={biasClass}>{data.bias.toUpperCase()}</span>
         </div>
-        <div>
-          <div className={`text-2xl font-bold font-mono ${biasColor}`}>{data.confidence}%</div>
-          <div className="text-[10px] text-fg-muted">Confidence</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          <span className="kt-stat-value">{data.confidence}%</span>
+          <span className="kt-stat-label" style={{ margin: 0 }}>confidence</span>
         </div>
       </div>
-      <div className="space-y-1.5">
-        <div className="flex justify-between text-[11px]">
-          <span className="text-fg-muted">P/D Zone</span>
-          <span className={`font-mono font-semibold ${data.premiumDiscount === 'premium' ? 'text-danger' : 'text-primary'}`}>
-            {data.premiumDiscount.toUpperCase()}
-          </span>
+
+      <div className="kt-panel-body">
+        {/* Bias / Zone / KillZone */}
+        <div className="kt-stat-grid kt-stat-grid-3" style={{ marginBottom: 16 }}>
+          <div className="kt-stat">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <BiasIcon bias={data.bias} />
+              <div>
+                <div className="kt-stat-label" style={{ marginBottom: 2 }}>Bias</div>
+                <div style={{
+                  color: data.bias === 'bullish' ? 'var(--kt-up)' : data.bias === 'bearish' ? 'var(--kt-dn)' : 'var(--kt-gold)',
+                  fontSize: 'var(--md)', fontWeight: 600,
+                }}>
+                  {data.bias.charAt(0).toUpperCase() + data.bias.slice(1)}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="kt-stat">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Layers size={16} style={{ color: pdColor }} />
+              <div>
+                <div className="kt-stat-label" style={{ marginBottom: 2 }}>Zone</div>
+                <div style={{ color: pdColor, fontSize: 'var(--md)', fontWeight: 600 }}>
+                  {data.premiumDiscount.charAt(0).toUpperCase() + data.premiumDiscount.slice(1)}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="kt-stat">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Clock size={16} style={{ color: data.killZone !== 'none' ? 'var(--kt-up)' : 'var(--kt-muted)' }} />
+              <div>
+                <div className="kt-stat-label" style={{ marginBottom: 2 }}>Kill Zone</div>
+                <div style={{
+                  color: data.killZone !== 'none' ? 'var(--kt-up)' : 'var(--kt-text2)',
+                  fontSize: 'var(--md)', fontWeight: 600,
+                }}>
+                  {data.killZone.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="flex justify-between text-[11px]">
-          <span className="text-fg-muted">Kill Zone</span>
-          <span className={`font-mono ${data.killZone !== 'none' ? 'text-primary' : 'text-fg-muted'}`}>
-            {data.killZone.replace('_', ' ').toUpperCase()}
-          </span>
+
+        {/* Bull/Bear Score */}
+        <div className="kt-grid-2" style={{ marginBottom: 16 }}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span className="kt-stat-label" style={{ margin: 0 }}>Bull Score</span>
+              <span style={{ color: 'var(--kt-up)', fontSize: 'var(--xs)', fontFamily: 'var(--font-mono)' }}>{data.bullScore.toFixed(0)}</span>
+            </div>
+            <div className="kt-bar-track">
+              <div className="kt-bar-fill up" style={{ width: `${data.bullScore}%` }} />
+            </div>
+          </div>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span className="kt-stat-label" style={{ margin: 0 }}>Bear Score</span>
+              <span style={{ color: 'var(--kt-dn)', fontSize: 'var(--xs)', fontFamily: 'var(--font-mono)' }}>{data.bearScore.toFixed(0)}</span>
+            </div>
+            <div className="kt-bar-track">
+              <div className="kt-bar-fill dn" style={{ width: `${data.bearScore}%` }} />
+            </div>
+          </div>
         </div>
-        <div className="flex justify-between text-[11px]">
-          <span className="text-fg-muted">EMA Bias</span>
-          <span className={`font-mono ${data.structure.emaBias === 'bullish' ? 'text-primary' : 'text-danger'}`}>
-            {data.structure.emaBias.toUpperCase()}
-          </span>
+
+        {/* Structure */}
+        <div style={{ marginBottom: 16 }}>
+          <div className="kt-stat-label" style={{ marginBottom: 8 }}>Structure</div>
+          <div className="kt-stat-grid kt-stat-grid-3">
+            {[
+              { label: 'EMA Bias', value: data.structure.emaBias },
+              { label: 'Long-term', value: data.structure.longTermBias },
+              { label: 'Price vs EMA', value: data.structure.priceVsEma },
+            ].map(s => (
+              <div key={s.label} className="kt-stat" style={{ textAlign: 'center' }}>
+                <div className="kt-stat-label" style={{ marginBottom: 2 }}>{s.label}</div>
+                <div style={{
+                  color: s.value === 'bullish' ? 'var(--kt-up)' : s.value === 'bearish' ? 'var(--kt-dn)' : 'var(--kt-gold)',
+                  fontSize: 'var(--sm)', fontWeight: 700, fontFamily: 'var(--font-mono)',
+                }}>
+                  {s.value.toUpperCase()}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
+
+        {/* Signals */}
+        {data.signals.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div className="kt-stat-label" style={{ marginBottom: 8 }}>Signals</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {data.signals.map((sig, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'start', gap: 8, fontSize: 'var(--md)' }}>
+                  <span style={{ color: 'var(--kt-up)', marginTop: 1 }}>→</span>
+                  <span style={{ color: 'var(--kt-text2)' }}>{sig}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Key Levels */}
+        {data.levels.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div className="kt-stat-label" style={{ marginBottom: 8 }}>Key Levels</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {data.levels.map((level, i) => (
+                <div key={i} className={`kt-level-row ${levelClass(level.type)}`}>
+                  <span style={{ color: 'var(--kt-text2)', fontSize: 'var(--sm)' }}>{level.label}</span>
+                  <span style={{ color: 'var(--kt-text)', fontSize: 'var(--sm)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                    {fmt(level.zone[0], data.symbol)} — {fmt(level.zone[1], data.symbol)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Trade Setup */}
+        {data.tradeSetup && (
+          <div className="kt-card" style={{ marginBottom: 0 }}>
+            <div className="kt-card-pad">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <Target size={13} style={{ color: 'var(--kt-up)' }} />
+                <span style={{ color: 'var(--kt-text)', fontSize: 'var(--sm)', fontWeight: 600 }}>Trade Setup</span>
+                <span className={data.tradeSetup.direction === 'bullish' ? 'badge-bull' : 'badge-bear'} style={{ marginLeft: 'auto' }}>
+                  {data.tradeSetup.direction.toUpperCase()}
+                </span>
+              </div>
+              <div className="kt-grid-2" style={{ gap: 8 }}>
+                {[
+                  { label: 'Entry', value: fmt(data.tradeSetup.entry, data.symbol), color: 'var(--kt-text)' },
+                  { label: 'Stop Loss', value: fmt(data.tradeSetup.sl, data.symbol), color: 'var(--kt-dn)' },
+                  { label: `TP1 (R:R ${data.tradeSetup.rr1?.toFixed(1)})`, value: fmt(data.tradeSetup.tp1, data.symbol), color: 'var(--kt-up)' },
+                  { label: `TP2 (R:R ${data.tradeSetup.rr2?.toFixed(1)})`, value: fmt(data.tradeSetup.tp2, data.symbol), color: 'var(--kt-up)' },
+                  { label: 'TP3', value: fmt(data.tradeSetup.tp3, data.symbol), color: 'var(--kt-up)' },
+                ].map(r => (
+                  <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                    <span style={{ color: 'var(--kt-muted)', fontSize: 'var(--xs)' }}>{r.label}</span>
+                    <span style={{ color: r.color, fontSize: 'var(--sm)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{r.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Meta indicators */}
+        {data.meta && (
+          <div className="kt-stat-grid kt-stat-grid-5" style={{ marginTop: 14 }}>
+            {[
+              { label: 'RSI', value: data.meta.rsi?.toFixed(1) },
+              { label: 'ATR', value: data.meta.atr?.toFixed(dec) },
+              { label: 'EMA20', value: data.meta.ema20?.toFixed(dec) },
+              { label: 'EMA50', value: data.meta.ema50?.toFixed(dec) },
+              { label: 'SMA200', value: data.meta.sma200?.toFixed(dec) },
+            ].map(m => (
+              <div key={m.label} className="kt-stat" style={{ textAlign: 'center' }}>
+                <div className="kt-stat-label" style={{ marginBottom: 2 }}>{m.label}</div>
+                <div style={{ color: 'var(--kt-text2)', fontSize: 'var(--sm)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                  {m.value ?? '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-function TradeSetupCard({ setup }: { setup: NonNullable<SMCData['tradeSetup']> }) {
-  return (
-    <div className="glass gradient-border p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Target size={16} className="text-primary" />
-        <span className="text-[13px] font-semibold">Trade Setup</span>
-        <span className={`ml-auto chip ${setup.direction === 'bullish' ? 'chip-primary' : 'chip-danger'}`}>
-          {setup.direction.toUpperCase()}
-        </span>
-      </div>
-      <div className="space-y-2">
-        <div className="flex justify-between">
-          <span className="text-[11px] text-fg-muted">Entry</span>
-          <span className="text-sm font-mono font-bold">{setup.entry.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-[11px] text-fg-muted">Stop Loss</span>
-          <span className="text-sm font-mono font-bold text-danger">{setup.sl.toFixed(2)}</span>
-        </div>
-        <div className="divider-gradient my-2" />
-        <div className="flex justify-between">
-          <span className="text-[11px] text-fg-muted">TP1 (RR {setup.rr1?.toFixed(1)})</span>
-          <span className="text-sm font-mono font-bold text-primary">{setup.tp1.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-[11px] text-fg-muted">TP2 (RR {setup.rr2?.toFixed(1)})</span>
-          <span className="text-sm font-mono font-bold text-primary">{setup.tp2.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-[11px] text-fg-muted">TP3</span>
-          <span className="text-sm font-mono font-bold text-primary">{setup.tp3.toFixed(2)}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
+export default function Decision() {
+  const [tf, setTf] = useState<TFKey>('1D')
 
-export default function DecisionEngine() {
-  const { data: smcData, isLoading } = useQuery<{ data: SMCSymbol[] }>({
-    queryKey: ['smc-batch'],
-    queryFn: () => api('/api/smc/batch'),
+  const { data: smcData, isLoading } = useQuery<SMCData[]>({
+    queryKey: ['smc-batch', tf],
+    queryFn: () => api(`/api/smc/batch?tf=${tf}`),
     refetchInterval: 120_000,
     retry: false,
   })
 
-  const pairs = smcData?.data ?? []
+  const pairs = smcData ?? []
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div>
+      <div className="kt-route-head">
         <div>
-          <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-            <Crosshair className="w-5 h-5 text-primary" />
-            SMC Analysis
-          </h1>
-          <p className="text-[13px] text-fg-muted mt-1">Smart Money Concepts — Order Blocks, FVG, Structure, Kill Zones</p>
+          <div className="kt-kicker">Smart Money Concepts</div>
+          <h1>SMC Analysis</h1>
+          <p>Structure, Order Blocks, FVG, Kill Zones — per-pair breakdown</p>
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-fg-muted font-mono">
-          <Clock size={12} />
+        <div className="kt-route-actions">
+          {/* Timeframe selector */}
+          <div style={{ display: 'flex', gap: 2, background: 'var(--kt-bg2)', borderRadius: 8, padding: 3, border: '1px solid var(--kt-border)' }}>
+            {TIMEFRAMES.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTf(t.key)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 6,
+                  fontSize: 'var(--xs)',
+                  fontWeight: 600,
+                  fontFamily: 'var(--font-mono)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                  background: tf === t.key ? 'var(--kt-gold)' : 'transparent',
+                  color: tf === t.key ? '#000' : 'var(--kt-text2)',
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <span className="kt-status-dot" />
           <span>Auto-refresh 2min</span>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="kt-grid-2">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="glass p-5 space-y-3">
-              <Skeleton className="w-20 h-3" />
-              <Skeleton className="w-32 h-8" />
-              <Skeleton className="w-full h-20" />
+            <div key={i} className="kt-panel">
+              <div className="kt-panel-body">
+                <div className="skeleton w-20 h-3 mb-3" />
+                <div className="skeleton w-32 h-8 mb-3" />
+                <div className="skeleton w-full h-40" />
+              </div>
             </div>
           ))}
         </div>
+      ) : pairs.length > 0 ? (
+        <div className="kt-grid-2">
+          {pairs.map((pair) => (
+            <SMCPanel key={`${pair.symbol}-${tf}`} data={pair} />
+          ))}
+        </div>
       ) : (
-        <>
-          {/* Bias Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {pairs.map((pair) => (
-              <BiasCard key={pair.symbol} data={pair} />
-            ))}
+        <div className="kt-panel">
+          <div className="kt-empty">
+            <Crosshair size={32} />
+            <p>No SMC data available</p>
+            <p style={{ fontSize: 'var(--xs)', marginTop: 4, color: 'var(--kt-dim)' }}>Data will appear when the API returns analysis</p>
           </div>
-
-          {/* Detailed Analysis — first pair (XAU/USD) */}
-          {pairs.length > 0 && pairs[0] && (
-            <div className="grid grid-cols-3 gap-4">
-              {/* Signals */}
-              <div className="col-span-2 glass p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <Shield size={16} className="text-warning" />
-                  <span className="text-[13px] font-semibold">Signals & Key Levels</span>
-                </div>
-                <div className="space-y-2 mb-4">
-                  {pairs[0].signals.map((sig, i) => (
-                    <div key={i} className="flex items-start gap-2 text-[12px]">
-                      <span className="text-primary mt-0.5">→</span>
-                      <span className="text-fg-secondary">{sig}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="divider-gradient my-3" />
-                <h4 className="text-[11px] text-fg-muted uppercase tracking-widest mb-3 font-mono">Key Levels</h4>
-                <div className="space-y-1.5">
-                  {pairs[0].levels.map((level, i) => (
-                    <div key={i} className={`flex items-center justify-between px-3 py-2 rounded-lg border ${levelColors[level.type] || 'border-border/20 bg-surface/20'}`}>
-                      <span className="text-[11px] text-fg-secondary">{level.label}</span>
-                      <span className="text-[11px] font-mono font-semibold">
-                        {level.zone[0].toFixed(2)} — {level.zone[1].toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Trade Setup */}
-              {pairs[0].tradeSetup ? (
-                <TradeSetupCard setup={pairs[0].tradeSetup} />
-              ) : (
-                <div className="glass p-5 flex flex-col items-center justify-center text-center">
-                  <AlertTriangle size={24} className="text-warning mb-3" />
-                  <span className="text-[13px] font-semibold mb-1">No Setup</span>
-                  <span className="text-[11px] text-fg-muted">Wait for clear structure (BOS/CHoCH)</span>
-                </div>
-              )}
-            </div>
-          )}
-        </>
+        </div>
       )}
     </div>
   )
