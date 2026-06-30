@@ -726,7 +726,7 @@ analysisRoutes.get('/narrative', async (c) => {
       const { getMultiTFData, analyzeSMC } = await import('./smc');
       const rawData = await getMultiTFData(symbol, market, smcTf);
       if (!rawData) return null;
-      const smcResult = analyzeSMC(rawData);
+      const smcResult = analyzeSMC(rawData, smcTf);
       if (!smcResult) return null;
 
       return buildNarrative(smcResult, symbol, tf);

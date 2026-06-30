@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { marketRoutes } from './routes/market';
-import { idxRoutes } from './routes/idx';
 import { analysisRoutes } from './routes/analysis';
 import { portfolioRoutes } from './routes/portfolio';
 import { aiRoutes } from './routes/ai';

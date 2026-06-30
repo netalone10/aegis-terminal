@@ -70,7 +70,7 @@ export async function getMultiTFData(symbol: string, market: string, tf?: string
   const effectiveTf = tf || '1D';
   const [tfData, weekData] = await Promise.all([
     tvScan({
-      columns: ['name', 'close', 'open', 'high', 'low', 'change', 'Recommend.All', 'RSI', 'EMA20', 'EMA50', 'ATR', 'High.1M', 'Low.1M', 'High.1W', 'Low.1W', 'High.All', 'Low.All'],
+      columns: ['name', 'close', 'open', 'high', 'low', 'change', 'Recommend.All', 'RSI', 'EMA20', 'EMA50', 'ATR', 'High.1D', 'Low.1D', 'High.1W', 'Low.1W', 'High.1M', 'Low.1M', 'High.All', 'Low.All'],
       filter: [{ left: 'name', operation: 'equal', right: symbol }],
       markets: [market],
       range: [0, 1],
@@ -103,27 +103,52 @@ export async function getMultiTFData(symbol: string, market: string, tf?: string
     ema20: d.d?.[8],
     ema50: d.d?.[9],
     atr: d.d?.[10],
-    high1M: d.d?.[11],
-    low1M: d.d?.[12],
+    high1M: d.d?.[15],
+    low1M: d.d?.[16],
     high1W: d.d?.[13],
     low1W: d.d?.[14],
-    highAll: d.d?.[15],
-    lowAll: d.d?.[16],
+    high1D: d.d?.[11],
+    low1D: d.d?.[12],
+    highAll: d.d?.[17],
+    lowAll: d.d?.[18],
     sma200: w?.d?.[7],
     perfWeek: w?.d?.[5],
     perfMonth: w?.d?.[6],
   };
 }
 
-// SMC Analysis Engine
-export function analyzeSMC(data: any): any {
+// SMC Analysis Engine — TF-aware levels
+export function analyzeSMC(data: any, tf?: string): any {
   if (!data) return null;
 
   const { close, open, high, low, atr, ema20, ema50, sma200, rsi,
-    high1M, low1M, highAll, lowAll } = data;
-  // Fallback: use 1M data if 1W not available
+    high1M, low1M, high1D, low1D, highAll, lowAll } = data;
   const high1W = data.high1W ?? high1M;
   const low1W = data.low1W ?? low1M;
+
+  // TF-specific reference levels
+  // 1H → OB from Daily, Fib from Weekly
+  // 4H → OB from Weekly, Fib from Monthly
+  // 1D → OB from Weekly, Fib from Monthly (default)
+  const effectiveTf = (tf || '1D').toUpperCase();
+  let obHigh: number, obLow: number, obLabel: string;
+  let fibHigh: number, fibLow: number, fibLabel: string;
+  let liqHigh: number, liqLow: number, liqLabel: string;
+
+  if (effectiveTf === '1H') {
+    obHigh = high1D ?? high1W; obLow = low1D ?? low1W; obLabel = 'Daily';
+    fibHigh = high1W; fibLow = low1W; fibLabel = 'Weekly';
+    liqHigh = high1D ?? high1W; liqLow = low1D ?? low1W; liqLabel = 'Daily';
+  } else if (effectiveTf === '4H') {
+    obHigh = high1W; obLow = low1W; obLabel = 'Weekly';
+    fibHigh = high1M; fibLow = low1M; fibLabel = 'Monthly';
+    liqHigh = high1W; liqLow = low1W; liqLabel = 'Weekly';
+  } else {
+    // 1D, 1W, default
+    obHigh = high1W; obLow = low1W; obLabel = 'Weekly';
+    fibHigh = high1M; fibLow = low1M; fibLabel = 'Monthly';
+    liqHigh = high1W; liqLow = low1W; liqLabel = 'Weekly';
+  }
 
   const levels: any[] = [];
   let bias = 'neutral';
@@ -140,16 +165,16 @@ export function analyzeSMC(data: any): any {
 
   const bullishOB = {
     type: 'bullish_ob',
-    zone: [low1W, low1W + atrValue * 0.5],
-    label: 'Bullish Order Block (Weekly Low)',
-    strength: close < low1W + atrValue ? 'strong' : 'moderate',
+    zone: [obLow, obLow + atrValue * 0.5],
+    label: `Bullish OB (${obLabel} Low)`,
+    strength: close < obLow + atrValue ? 'strong' : 'moderate',
   };
 
   const bearishOB = {
     type: 'bearish_ob',
-    zone: [high1W - atrValue * 0.5, high1W],
-    label: 'Bearish Order Block (Weekly High)',
-    strength: close > high1W - atrValue ? 'strong' : 'moderate',
+    zone: [obHigh - atrValue * 0.5, obHigh],
+    label: `Bearish OB (${obLabel} High)`,
+    strength: close > obHigh - atrValue ? 'strong' : 'moderate',
   };
 
   levels.push(bullishOB, bearishOB);
@@ -179,52 +204,47 @@ export function analyzeSMC(data: any): any {
   }
 
   // === PREMIUM / DISCOUNT ZONES ===
-  const range1M = high1M - low1M;
-  const range1W = high1W - low1W;
-  const midpoint1M = low1M + range1M * 0.5;
-  const midpoint1W = low1W + range1W * 0.5;
-  const fib618 = low1M + range1M * 0.618;
-  const fib382 = low1M + range1M * 0.382;
+  const rangeFib = fibHigh - fibLow;
+  const midpoint = fibLow + rangeFib * 0.5;
+  const fib618 = fibLow + rangeFib * 0.618;
+  const fib382 = fibLow + rangeFib * 0.382;
 
-  const premiumDiscount = close > midpoint1M ? 'premium' : 'discount';
+  const premiumDiscount = close > midpoint ? 'premium' : 'discount';
 
   levels.push({
     type: 'equilibrium',
-    zone: [midpoint1M, midpoint1M],
-    label: `Equilibrium (1M): ${midpoint1M.toFixed(2)}`,
+    zone: [midpoint, midpoint],
+    label: `Equilibrium (${fibLabel}): ${midpoint.toFixed(2)}`,
     strength: 'key',
   });
 
   levels.push({
     type: 'fib_618',
     zone: [fib618, fib618],
-    label: `Fib 61.8%: ${fib618.toFixed(2)}`,
+    label: `Fib 61.8% (${fibLabel}): ${fib618.toFixed(2)}`,
     strength: 'key',
   });
 
   levels.push({
     type: 'fib_382',
     zone: [fib382, fib382],
-    label: `Fib 38.2%: ${fib382.toFixed(2)}`,
+    label: `Fib 38.2% (${fibLabel}): ${fib382.toFixed(2)}`,
     strength: 'key',
   });
 
   // === LIQUIDITY POOLS ===
-  const eqHighTarget = high1W;
-  const eqLowTarget = low1W;
-
   levels.push({
     type: 'liquidity_high',
-    zone: [eqHighTarget, eqHighTarget + atrValue * 0.3],
-    label: 'Buy-side Liquidity (Weekly High)',
-    strength: close > high1W - atrValue * 0.5 ? 'imminent' : 'distant',
+    zone: [liqHigh, liqHigh + atrValue * 0.3],
+    label: `BSL (${liqLabel} High)`,
+    strength: close > liqHigh - atrValue * 0.5 ? 'imminent' : 'distant',
   });
 
   levels.push({
     type: 'liquidity_low',
-    zone: [eqLowTarget - atrValue * 0.3, eqLowTarget],
-    label: 'Sell-side Liquidity (Weekly Low)',
-    strength: close < low1W + atrValue * 0.5 ? 'imminent' : 'distant',
+    zone: [liqLow - atrValue * 0.3, liqLow],
+    label: `SSL (${liqLabel} Low)`,
+    strength: close < liqLow + atrValue * 0.5 ? 'imminent' : 'distant',
   });
 
   // === KILL ZONE DETECTION ===
@@ -365,7 +385,7 @@ smcRoutes.get('/analyze/:symbol', async (c) => {
       const market = (symbol === 'XAUUSD' || symbol === 'XAU') ? 'cfd' : 'forex';
       const rawData = await getMultiTFData(symbol, market, tf);
       if (!rawData) return null;
-      return analyzeSMC(rawData);
+      return analyzeSMC(rawData, tf);
     }, { ttl: 120 });
 
     if (!data) return c.json({ error: 'Symbol not found' }, 404);
@@ -474,7 +494,7 @@ smcRoutes.get('/screener', async (c) => {
           try {
             const rawData = await getMultiTFData(symbol.name, symbol.market, tf);
             if (!rawData) return null;
-            const analysis = analyzeSMC(rawData);
+            const analysis = analyzeSMC(rawData, tf);
             if (!analysis) return null;
 
             const { score, grade, gradeLabel, entryReason, rr } = gradeSMCSetup(analysis, tf);
@@ -540,7 +560,7 @@ smcRoutes.get('/batch', async (c) => {
         symbols.map(async (s) => {
           try {
             const rawData = await getMultiTFData(s.name, s.market, tf);
-            const analysis = rawData ? analyzeSMC(rawData) : null;
+            const analysis = rawData ? analyzeSMC(rawData, tf) : null;
             return analysis ? { symbol: s.label, ...analysis } : null;
           } catch {
             return null;
@@ -581,9 +601,9 @@ smcRoutes.get('/confluence', async (c) => {
               getMultiTFData(s.name, s.market, '1H'),
             ]);
 
-            const daily = dailyRaw ? analyzeSMC(dailyRaw) : null;
-            const h4 = h4Raw ? analyzeSMC(h4Raw) : null;
-            const h1 = h1Raw ? analyzeSMC(h1Raw) : null;
+            const daily = dailyRaw ? analyzeSMC(dailyRaw, '1D') : null;
+            const h4 = h4Raw ? analyzeSMC(h4Raw, '4H') : null;
+            const h1 = h1Raw ? analyzeSMC(h1Raw, '1H') : null;
 
             if (!daily || !h4 || !h1) return null;
 
