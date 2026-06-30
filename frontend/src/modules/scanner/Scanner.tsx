@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { Search, Filter } from 'lucide-react'
 
 const FILTERS = [
@@ -117,9 +117,8 @@ export default function Scanner() {
               const isExpanded = expandedStock === stock.symbol
               const isUp = stock.change >= 0
               return (
-                <>
+                <React.Fragment key={stock.symbol}>
                   <tr
-                    key={stock.symbol}
                     onClick={() => setExpandedStock(isExpanded ? null : stock.symbol)}
                     style={{ cursor: 'pointer' }}
                   >
@@ -163,7 +162,7 @@ export default function Scanner() {
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               )
             })}
           </tbody>

@@ -102,7 +102,7 @@ export default function RiskCalc() {
       {/* Header */}
       <div className="kt-route-head">
         <div>
-          <div className="kt-kicker">Manajemen Posisi</div>
+          <div className="kt-kicker">Position Management</div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Calculator size={22} style={{ color: 'var(--kt-gold)' }} />
             Risk Calculator

@@ -1,13 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 
-type RatesResponse = {
-  status: string
-  data: {
-    rates: Record<string, number | null>
-    spreads: { '2Y-10Y': string | null; '3M-10Y': string | null }
-    curveShape: string
-  }
+type RatesData = {
+  rates: Record<string, number | null>
+  spreads: { '2Y-10Y': string | null; '3M-10Y': string | null }
+  curveShape: string
 }
 
 const rateLabels: Record<string, string> = {
@@ -27,7 +24,7 @@ function RateCard({ name, value }: { name: string; value: number | null }) {
 }
 
 export default function Rates() {
-  const { data, isLoading } = useQuery<RatesResponse>({
+  const { data, isLoading } = useQuery<RatesData>({
     queryKey: ['rates-data'],
     queryFn: () => api('/api/macro/rates'),
     staleTime: 300_000,
@@ -35,17 +32,17 @@ export default function Rates() {
     retry: false,
   })
 
-  const rates = data?.data?.rates ?? {}
-  const spreads: Record<string, string | null> = data?.data?.spreads ?? {}
-  const curveShape = data?.data?.curveShape ?? 'N/A'
+  const rates = data?.rates ?? {}
+  const spreads: Record<string, string | null> = data?.spreads ?? {}
+  const curveShape = data?.curveShape ?? 'N/A'
 
   return (
     <div>
       <div className="kt-route-head">
         <div>
-          <div className="kt-kicker">Rate & Obligasi</div>
+          <div className="kt-kicker">Rates & Bonds</div>
           <h1>US Treasury Yields</h1>
-          <p>Bentuk kurva yield dan konteks rate untuk posisi emas / USD</p>
+          <p>Yield curve shape and rate context for gold / USD positioning</p>
         </div>
         <div className="kt-route-actions">
           <span className="kt-status-dot" />

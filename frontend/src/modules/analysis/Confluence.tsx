@@ -102,7 +102,7 @@ export default function Confluence() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <div className="kt-kicker">Konfluens Multi-TF</div>
+          <div className="kt-kicker">Multi-TF Confluence</div>
           <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: -1 }}>Konfluens Multi-Timeframe</h1>
           <p style={{ color: 'var(--kt-muted)', marginTop: 6, fontSize: 12 }}>Alignment SMC lintas 3 timeframe: Daily, 4H, 1H</p>
         </div>
@@ -111,21 +111,21 @@ export default function Confluence() {
 
       <div className="kt-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <div className="kt-stat" style={{ textAlign: 'center', padding: 12 }}>
-          <p className="kt-kicker" style={{ marginBottom: 4 }}>KUAT</p>
+          <p className="kt-kicker" style={{ marginBottom: 4 }}>STRONG</p>
           <p style={{ fontSize: 'var(--md)', fontWeight: 800, color: 'var(--kt-up)', fontFamily: 'var(--font-mono)' }}>{strong}</p>
         </div>
         <div className="kt-stat" style={{ textAlign: 'center', padding: 12 }}>
-          <p className="kt-kicker" style={{ marginBottom: 4 }}>SEBAGIAN</p>
+          <p className="kt-kicker" style={{ marginBottom: 4 }}>PARTIAL</p>
           <p style={{ fontSize: 'var(--md)', fontWeight: 800, color: 'var(--kt-gold)', fontFamily: 'var(--font-mono)' }}>{partial}</p>
         </div>
         <div className="kt-stat" style={{ textAlign: 'center', padding: 12 }}>
-          <p className="kt-kicker" style={{ marginBottom: 4 }}>KONFLIK</p>
+          <p className="kt-kicker" style={{ marginBottom: 4 }}>CONFLICT</p>
           <p style={{ fontSize: 'var(--md)', fontWeight: 800, color: 'var(--kt-dn)', fontFamily: 'var(--font-mono)' }}>{conflict}</p>
         </div>
       </div>
 
-      {isLoading && <p style={{ color: 'var(--kt-muted)', textAlign: 'center', padding: 40 }}>Memuat data multi-timeframe...</p>}
-      {error && <p style={{ color: 'var(--kt-dn)', textAlign: 'center', padding: 40 }}>Gagal memuat data konfluens</p>}
+      {isLoading && <p style={{ color: 'var(--kt-muted)', textAlign: 'center', padding: 40 }}>Loading multi-timeframe data...</p>}
+      {error && <p style={{ color: 'var(--kt-dn)', textAlign: 'center', padding: 40 }}>Failed to load confluence data</p>}
 
       {data && data.map(pair => <PairCard key={pair.pair} pair={pair} />)}
     </div>

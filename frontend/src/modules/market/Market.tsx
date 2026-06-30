@@ -31,7 +31,7 @@ export default function Market() {
         <div>
           <div className="kt-kicker">Market Live</div>
           <h1>Ringkasan Market</h1>
-          <p>Pasangan forex utama dengan harga live</p>
+          <p>Major forex pairs with live pricing</p>
         </div>
         <div className="kt-route-actions">
           <DataBadge source="Yahoo Finance" />

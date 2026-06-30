@@ -2,16 +2,16 @@ import { NavLink } from 'react-router-dom'
 import { Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart, Briefcase, Bot, DollarSign } from 'lucide-react'
 
 const navItems = [
-  { to: '/', label: 'Beranda', icon: Home },
+  { to: '/', label: 'Home', icon: Home },
   { to: '/market', label: 'Market', icon: BarChart3 },
   { to: '/decision', label: 'SMC', icon: Crosshair },
-  { to: '/macro', label: 'Makro', icon: Globe },
-  { to: '/journal', label: 'Jurnal', icon: BookOpen },
+  { to: '/macro', label: 'Macro', icon: Globe },
+  { to: '/journal', label: 'Journal', icon: BookOpen },
   { to: '/scanner', label: 'Scanner', icon: ScanLine },
   { to: '/chart', label: 'Chart', icon: CandlestickChart },
-  { to: '/portfolio', label: 'Portofolio', icon: Briefcase },
+  { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { to: '/ai', label: 'AI', icon: Bot },
-  { to: '/rates', label: 'Rate', icon: DollarSign },
+  { to: '/rates', label: 'Rates', icon: DollarSign },
 ]
 
 export default function Sidebar() {

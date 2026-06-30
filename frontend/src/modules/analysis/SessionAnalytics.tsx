@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import React, { useMemo } from 'react'
 
 /* ── mock data ──────────────────────────────────────────────────── */
 
@@ -138,7 +138,7 @@ export default function SessionAnalytics() {
           ))}
           {/* rows */}
           {days.map((day, di) => (
-            <>
+            <React.Fragment key={day}>
               <div key={`d${di}`} style={{ fontSize: '.75rem', color: 'var(--kt-text2)', fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center' }}>{day}</div>
               {heatmap[di].map((pf, si) => (
                 <div
@@ -157,7 +157,7 @@ export default function SessionAnalytics() {
                   {pf.toFixed(1)}×
                 </div>
               ))}
-            </>
+            </React.Fragment>
           ))}
         </div>
       </div>

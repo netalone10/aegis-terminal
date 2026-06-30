@@ -42,29 +42,29 @@ const queryClient = new QueryClient({
 })
 
 const navItems = [
-  { to: '/', label: 'Beranda', icon: Home },
+  { to: '/', label: 'Home', icon: Home },
   { to: '/market', label: 'Market', icon: BarChart3 },
-  { to: '/plan', label: 'Rencana', icon: FileText },
+  { to: '/plan', label: 'Plan', icon: FileText },
   { to: '/decision', label: 'SMC', icon: Crosshair },
-  { to: '/confluence', label: 'Konfluens', icon: Layers },
+  { to: '/confluence', label: 'Confluence', icon: Layers },
   { to: '/screener', label: 'Screener', icon: ScanLine },
-  { to: '/macro', label: 'Makro', icon: Globe },
-  { to: '/journal', label: 'Jurnal', icon: BookOpen },
-  { to: '/risk', label: 'Risiko', icon: Calculator },
+  { to: '/macro', label: 'Macro', icon: Globe },
+  { to: '/journal', label: 'Journal', icon: BookOpen },
+  { to: '/risk', label: 'Risk', icon: Calculator },
   { to: '/killzone', label: 'KillZone', icon: Timer },
   { to: '/scanner', label: 'Scanner', icon: ScanLine },
   { to: '/chart', label: 'Chart', icon: CandlestickChart },
-  { to: '/portfolio', label: 'Portofolio', icon: Briefcase },
-  { to: '/correlation', label: 'Korelasi', icon: Grid3x3 },
-  { to: '/structure', label: 'Struktur', icon: Map },
-  { to: '/sentiment', label: 'Sentimen', icon: Activity },
+  { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
+  { to: '/correlation', label: 'Correlation', icon: Grid3x3 },
+  { to: '/structure', label: 'Structure', icon: Map },
+  { to: '/sentiment', label: 'Sentiment', icon: Activity },
   { to: '/trades', label: 'Trade', icon: Activity },
   { to: '/ai', label: 'AI', icon: Bot },
-  { to: '/rates', label: 'Rate', icon: DollarSign },
-  { to: '/calendar', label: 'Kalender', icon: CalendarIcon },
-  { to: '/sessions', label: 'Sesi', icon: BarChart3 },
+  { to: '/rates', label: 'Rates', icon: DollarSign },
+  { to: '/calendar', label: 'Calendar', icon: CalendarIcon },
+  { to: '/sessions', label: 'Sessions', icon: BarChart3 },
   { to: '/backtest', label: 'Backtest', icon: FlaskConical },
-  { to: '/about', label: 'Tentang', icon: Sparkles },
+  { to: '/about', label: 'About', icon: Sparkles },
 ]
 
 function AppShell() {
@@ -103,7 +103,7 @@ function AppShell() {
           textAlign: 'center', padding: '12px 16px', fontSize: 11, color: 'var(--kt-muted)',
           borderTop: '1px solid var(--kt-border)', lineHeight: 1.5, flexShrink: 0,
         }}>
-          ⚠️ Aegis Terminal bukan penasihat keuangan. Trading forex, emas, dan aset lainnya memiliki risiko tinggi. Anda bertanggung jawab penuh atas setiap keputusan trading.
+          ⚠️ Aegis Terminal is not financial advice. Trading forex, gold, and other assets carries high risk. You are fully responsible for every trading decision.
         </footer>
       </div>
     </div>

@@ -89,7 +89,7 @@ export default function Sentiment() {
     <div>
       <div className="kt-route-head">
         <div>
-          <div className="kt-kicker">DATA POSISI</div>
+          <div className="kt-kicker">POSITION DATA</div>
           <h1>Market Sentiment</h1>
           <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--sm)' }}>
             Laporan COT + posisi retail — temukan peluang contrarian
