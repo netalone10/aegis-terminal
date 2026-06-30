@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart, Briefcase, Bot, DollarSign } from 'lucide-react'
+import { Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart, Briefcase, Bot, DollarSign, FileText } from 'lucide-react'
 
 const navItems = [
   { to: '/', label: 'Home', icon: Home },
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/scanner', label: 'Scanner', icon: ScanLine },
   { to: '/chart', label: 'Chart', icon: CandlestickChart },
   { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
+  { to: '/session-report', label: 'Report', icon: FileText },
   { to: '/ai', label: 'AI', icon: Bot },
   { to: '/rates', label: 'Rates', icon: DollarSign },
 ]
