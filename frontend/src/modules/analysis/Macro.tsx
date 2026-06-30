@@ -1,46 +1,76 @@
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../lib/api'
 import { TrendingUp, TrendingDown, Minus, Globe, Calendar, Landmark } from 'lucide-react'
 
-const REGIME = { name: 'Goldilocks', description: 'Moderate growth with controlled inflation — favorable for risk assets', confidence: 78 }
+interface MacroIndicator {
+  seriesId: string
+  latest: number | string
+  previous: number | string
+  change: number
+}
 
-const INDICATORS = [
-  { label: 'CPI (YoY)', value: '3.2%', trend: 'down' as const },
-  { label: 'GDP Growth', value: '2.8%', trend: 'up' as const },
-  { label: 'Unemployment', value: '3.7%', trend: 'down' as const },
-  { label: 'Fed Rate', value: '5.25%', trend: 'flat' as const },
-  { label: 'Yield Spread', value: '0.45%', trend: 'up' as const },
-]
+interface MacroRates {
+  rates: Record<string, number | null>
+  spreads: Record<string, string | null>
+  curveShape: string
+}
 
-const CALENDAR = [
-  { date: 'Jul 2', event: 'US ISM Manufacturing', impact: 'High', forecast: '49.2', previous: '48.7' },
-  { date: 'Jul 5', event: 'US Non-Farm Payrolls', impact: 'High', forecast: '185K', previous: '272K' },
-  { date: 'Jul 10', event: 'US CPI (YoY)', impact: 'High', forecast: '3.1%', previous: '3.2%' },
-  { date: 'Jul 11', event: 'BI Rate Decision', impact: 'Medium', forecast: '6.25%', previous: '6.25%' },
-  { date: 'Jul 15', event: 'China GDP (Q2)', impact: 'High', forecast: '5.0%', previous: '5.3%' },
-  { date: 'Jul 17', event: 'ECB Rate Decision', impact: 'Medium', forecast: '4.25%', previous: '4.25%' },
-  { date: 'Jul 24', event: 'Japan BOJ Rate', impact: 'Medium', forecast: '0.1%', previous: '0.0%' },
-  { date: 'Jul 31', event: 'US FOMC Decision', impact: 'High', forecast: '5.25%', previous: '5.25%' },
-]
+interface MacroRegime {
+  regime: string
+  riskLevel: string
+  signals: Record<string, any>
+}
 
-const RATES = [
-  { central: 'Fed (US)', rate: '5.25%', next: 'Jul 31', bias: 'Hold', change: 'flat' },
-  { central: 'ECB (EU)', rate: '4.25%', next: 'Jul 17', bias: 'Hold', change: 'flat' },
-  { central: 'BOJ (JP)', rate: '0.0%', next: 'Jul 24', bias: 'Hike', change: 'up' },
-  { central: 'BI (ID)', rate: '6.25%', next: 'Jul 11', bias: 'Hold', change: 'flat' },
-  { central: 'BOE (UK)', rate: '5.25%', next: 'Aug 1', bias: 'Cut', change: 'down' },
-]
-
-function TrendIcon({ trend }: { trend: string }) {
-  if (trend === 'up') return <TrendingUp size={14} style={{ color: 'var(--kt-up)' }} />
-  if (trend === 'down') return <TrendingDown size={14} style={{ color: 'var(--kt-dn)' }} />
+function TrendIcon({ change }: { change: number }) {
+  if (change > 0) return <TrendingUp size={14} style={{ color: 'var(--kt-up)' }} />
+  if (change < 0) return <TrendingDown size={14} style={{ color: 'var(--kt-dn)' }} />
   return <Minus size={14} style={{ color: 'var(--kt-muted)' }} />
 }
 
-function ImpactBadge({ impact }: { impact: string }) {
-  if (impact === 'High') return <span className="badge-bear">{impact}</span>
-  return <span className="badge-neutral">{impact}</span>
+const REGIME_LABELS: Record<string, { name: string; description: string }> = {
+  goldilocks: { name: 'Goldilocks', description: 'Moderate growth with controlled inflation — favorable for risk assets' },
+  bull: { name: 'Bull Market', description: 'Strong growth momentum with rising confidence across risk assets' },
+  bear: { name: 'Bear Market', description: 'Contracting growth with elevated risk-off sentiment' },
+  neutral: { name: 'Neutral', description: 'Mixed signals with balanced risk and growth indicators' },
+  risk_on: { name: 'Risk-On', description: 'Favorable conditions for risk assets with low volatility' },
+  risk_off: { name: 'Risk-Off', description: 'Elevated uncertainty driving flight to safety' },
+  inflationary: { name: 'Inflationary', description: 'Rising price pressures challenging monetary policy frameworks' },
+  recession: { name: 'Recession', description: 'Economic contraction with deteriorating labor and output data' },
+}
+
+const RISK_COLORS: Record<string, string> = {
+  low: 'badge-bull',
+  moderate: 'badge-info',
+  high: 'badge-bear',
+  elevated: 'badge-bear',
 }
 
 export default function Macro() {
+  const { data: indicators, isLoading: loadingIndicators } = useQuery<Record<string, MacroIndicator>>({
+    queryKey: ['macro-indicators'],
+    queryFn: () => api('/api/macro/indicators'),
+    staleTime: 300_000,
+  })
+
+  const { data: ratesData, isLoading: loadingRates } = useQuery<MacroRates>({
+    queryKey: ['macro-rates'],
+    queryFn: () => api('/api/macro/rates'),
+    staleTime: 300_000,
+  })
+
+  const { data: regimeData, isLoading: loadingRegime } = useQuery<MacroRegime>({
+    queryKey: ['macro-regime'],
+    queryFn: () => api('/api/macro/regime'),
+    staleTime: 300_000,
+  })
+
+  const isLoading = loadingIndicators || loadingRates || loadingRegime
+  const indicatorList = indicators ? Object.entries(indicators).map(([key, val]) => ({ label: key, ...val })) : []
+  const rates = ratesData?.rates ?? {}
+  const regimeKey = regimeData?.regime?.toLowerCase() ?? 'neutral'
+  const regime = REGIME_LABELS[regimeKey] ?? REGIME_LABELS.neutral
+  const riskLevel = regimeData?.riskLevel ?? 'moderate'
+
   return (
     <div>
       <div className="kt-route-head">
@@ -55,109 +85,136 @@ export default function Macro() {
         </div>
       </div>
 
-      {/* Regime Card */}
-      <div className="kt-panel" style={{ marginBottom: 16 }}>
-        <div className="kt-panel-head">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Globe size={16} style={{ color: 'var(--kt-gold)' }} />
-            <span style={{ color: 'var(--kt-text)', fontSize: 'var(--md)', fontWeight: 600 }}>Current Regime</span>
-          </div>
-          <span className="badge-info">{REGIME.confidence}% confidence</span>
-        </div>
-        <div className="kt-panel-body">
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6 }}>
-            <span className="kt-stat-value gold" style={{ fontSize: 'var(--xl)' }}>{REGIME.name}</span>
-          </div>
-          <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--md)' }}>{REGIME.description}</p>
-        </div>
-      </div>
-
-      {/* Indicators */}
-      <div className="kt-stat-grid kt-stat-grid-5" style={{ marginBottom: 16 }}>
-        {INDICATORS.map(ind => (
-          <div key={ind.label} className="kt-stat">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <TrendIcon trend={ind.trend} />
-              <span className="kt-stat-label" style={{ margin: 0 }}>{ind.label}</span>
+      {isLoading ? (
+        <>
+          <div className="kt-panel" style={{ marginBottom: 16 }}>
+            <div className="kt-panel-body">
+              <div className="skeleton w-40 h-8 mb-3" />
+              <div className="skeleton w-64 h-4" />
             </div>
-            <div className="kt-stat-value">{ind.value}</div>
           </div>
-        ))}
-      </div>
+          <div className="kt-stat-grid kt-stat-grid-5" style={{ marginBottom: 16 }}>
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="kt-stat">
+                <div className="skeleton w-16 h-3 mb-3" />
+                <div className="skeleton w-20 h-7" />
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Regime Card */}
+          <div className="kt-panel" style={{ marginBottom: 16 }}>
+            <div className="kt-panel-head">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Globe size={16} style={{ color: 'var(--kt-gold)' }} />
+                <span style={{ color: 'var(--kt-text)', fontSize: 'var(--md)', fontWeight: 600 }}>Current Regime</span>
+              </div>
+              <span className={RISK_COLORS[riskLevel] ?? 'badge-info'}>{riskLevel} risk</span>
+            </div>
+            <div className="kt-panel-body">
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6 }}>
+                <span className="kt-stat-value gold" style={{ fontSize: 'var(--xl)' }}>{regime.name}</span>
+              </div>
+              <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--md)' }}>{regime.description}</p>
+            </div>
+          </div>
 
-      {/* Central Bank Rates */}
-      <div className="kt-section">
-        <div className="kt-section-head">
-          <div>
-            <h2>Central Bank Rates</h2>
-            <p>Current policy rates and next decision dates</p>
-          </div>
-          <Landmark size={16} style={{ color: 'var(--kt-muted)' }} />
-        </div>
-        <div className="kt-card">
-          <table className="kt-table">
-            <thead>
-              <tr>
-                <th>Central Bank</th>
-                <th>Rate</th>
-                <th>Next Decision</th>
-                <th>Bias</th>
-              </tr>
-            </thead>
-            <tbody>
-              {RATES.map(r => (
-                <tr key={r.central}>
-                  <td className="mono" style={{ color: 'var(--kt-text)' }}>{r.central}</td>
-                  <td className="mono">{r.rate}</td>
-                  <td>{r.next}</td>
-                  <td>
-                    <span className={
-                      r.change === 'up' ? 'badge-bull'
-                      : r.change === 'down' ? 'badge-bear'
-                      : 'badge-neutral'
-                    }>{r.bias}</span>
-                  </td>
-                </tr>
+          {/* Indicators */}
+          {indicatorList.length > 0 && (
+            <div className="kt-stat-grid kt-stat-grid-5" style={{ marginBottom: 16 }}>
+              {indicatorList.map(ind => (
+                <div key={ind.label} className="kt-stat">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <TrendIcon change={ind.change} />
+                    <span className="kt-stat-label" style={{ margin: 0 }}>{ind.label}</span>
+                  </div>
+                  <div className="kt-stat-value">{ind.latest}</div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </div>
+          )}
 
-      {/* Economic Calendar */}
-      <div className="kt-section">
-        <div className="kt-section-head">
-          <div>
-            <h2>Economic Calendar</h2>
-            <p>High-impact events for the current month</p>
-          </div>
-          <Calendar size={16} style={{ color: 'var(--kt-muted)' }} />
-        </div>
-        <div className="kt-card">
-          <table className="kt-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Event</th>
-                <th>Impact</th>
-                <th>Forecast</th>
-                <th>Previous</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CALENDAR.map((e, i) => (
-                <tr key={i}>
-                  <td className="mono">{e.date}</td>
-                  <td style={{ color: 'var(--kt-text)' }}>{e.event}</td>
-                  <td><ImpactBadge impact={e.impact} /></td>
-                  <td className="mono">{e.forecast}</td>
-                  <td className="mono" style={{ color: 'var(--kt-muted)' }}>{e.previous}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          {/* Central Bank Rates */}
+          {Object.keys(rates).length > 0 && (
+            <div className="kt-section">
+              <div className="kt-section-head">
+                <div>
+                  <h2>Key Rates</h2>
+                  <p>Current policy and market rates</p>
+                </div>
+                <Landmark size={16} style={{ color: 'var(--kt-muted)' }} />
+              </div>
+              <div className="kt-card">
+                <table className="kt-table">
+                  <thead>
+                    <tr>
+                      <th>Rate</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(rates).map(([key, value]) => (
+                      <tr key={key}>
+                        <td className="mono" style={{ color: 'var(--kt-text)' }}>{key}</td>
+                        <td className="mono">{value != null ? `${value}%` : 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Signals */}
+          {regimeData?.signals && Object.keys(regimeData.signals).length > 0 && (
+            <div className="kt-section" style={{ marginTop: 16 }}>
+              <div className="kt-section-head">
+                <div>
+                  <h2>Regime Signals</h2>
+                  <p>Underlying signal data for current regime assessment</p>
+                </div>
+                <Calendar size={16} style={{ color: 'var(--kt-muted)' }} />
+              </div>
+              <div className="kt-card">
+                <table className="kt-table">
+                  <thead>
+                    <tr>
+                      <th>Signal</th>
+                      <th>Value</th>
+                      <th>Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(regimeData.signals).map(([key, val]) => {
+                      const signalVal = val as any
+                      return (
+                        <tr key={key}>
+                          <td className="mono" style={{ color: 'var(--kt-text)' }}>{key.toUpperCase()}</td>
+                          <td className="mono">{signalVal?.value ?? signalVal?.latest ?? '—'}</td>
+                          <td>
+                            <TrendIcon change={signalVal?.change ?? 0} />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {indicatorList.length === 0 && Object.keys(rates).length === 0 && (
+            <div className="kt-panel">
+              <div className="kt-panel-body" style={{ textAlign: 'center', padding: '32px 16px' }}>
+                <Globe size={24} style={{ color: 'var(--kt-muted)', marginBottom: 8 }} />
+                <p style={{ color: 'var(--kt-muted)', fontSize: 'var(--md)' }}>No macro data available</p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

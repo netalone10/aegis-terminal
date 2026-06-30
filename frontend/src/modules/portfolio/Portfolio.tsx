@@ -1,38 +1,39 @@
 import { useState } from 'react'
-import { Plus } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../lib/api'
+
 
 interface Position {
   id: number; symbol: string; direction: 'Long' | 'Short';
-  entryPrice: number; currentPrice: number; sl: number; tp: number; status: 'Open' | 'Closed';
+  entryPrice: number; currentPrice: number; quantity: number; status: 'Open' | 'Closed';
+  pnl: number; pnlPercent: number; openedAt: string; closedAt: string | null;
 }
-
-const MOCK_POSITIONS: Position[] = [
-  { id: 1, symbol: 'BBCA', direction: 'Long', entryPrice: 9650, currentPrice: 9850, sl: 9400, tp: 10200, status: 'Open' },
-  { id: 2, symbol: 'ADRO', direction: 'Long', entryPrice: 2720, currentPrice: 2850, sl: 2600, tp: 3100, status: 'Open' },
-  { id: 3, symbol: 'TLKM', direction: 'Short', entryPrice: 2750, currentPrice: 2680, sl: 2900, tp: 2500, status: 'Open' },
-  { id: 4, symbol: 'BBRI', direction: 'Long', entryPrice: 4300, currentPrice: 4520, sl: 4100, tp: 4800, status: 'Closed' },
-  { id: 5, symbol: 'EXCL', direction: 'Short', entryPrice: 2050, currentPrice: 1920, sl: 2200, tp: 1800, status: 'Closed' },
-]
-
-function calcPnL(p: Position) {
-  const diff = p.direction === 'Long' ? p.currentPrice - p.entryPrice : p.entryPrice - p.currentPrice
-  const pct = (diff / p.entryPrice) * 100
-  return { diff, pct }
-}
-
-const summaryStats = [
-  { label: 'Total P&L', value: '+Rp 1,245,000', color: 'up' },
-  { label: 'Win Rate', value: '72%', color: 'gold' },
-  { label: 'Open Positions', value: '3', color: '' },
-  { label: 'Max Drawdown', value: '-4.2%', color: 'dn' },
-]
 
 export default function Portfolio() {
   const [filter, setFilter] = useState<'All' | 'Open' | 'Closed'>('All')
 
-  const filtered = filter === 'All' ? MOCK_POSITIONS : MOCK_POSITIONS.filter(p => filter === 'Open' ? p.status === 'Open' : p.status === 'Closed')
-  const openCount = MOCK_POSITIONS.filter(p => p.status === 'Open').length
-  const closedCount = MOCK_POSITIONS.filter(p => p.status === 'Closed').length
+  const { data: positions = [], isLoading, error } = useQuery<Position[]>({
+    queryKey: ['portfolio-positions'],
+    queryFn: () => api('/api/portfolio/positions'),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  })
+
+  const filtered = filter === 'All' ? positions : positions.filter(p => filter === 'Open' ? p.status === 'Open' : p.status === 'Closed')
+  const openCount = positions.filter(p => p.status === 'Open').length
+  const closedCount = positions.filter(p => p.status === 'Closed').length
+  const totalPnl = positions.reduce((s, p) => s + (p.pnl ?? 0), 0)
+  const wins = positions.filter(p => p.status === 'Closed' && (p.pnl ?? 0) > 0).length
+  const totalClosed = positions.filter(p => p.status === 'Closed').length
+  const winRate = totalClosed > 0 ? Math.round((wins / totalClosed) * 100) : 0
+  const maxDrawdown = positions.length > 0 ? Math.min(...positions.map(p => p.pnlPercent ?? 0)) : 0
+
+  const summaryStats = [
+    { label: 'Total P&L', value: `${totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString()}`, color: totalPnl >= 0 ? 'up' : 'dn' },
+    { label: 'Win Rate', value: `${winRate}%`, color: 'gold' },
+    { label: 'Open Positions', value: `${openCount}`, color: '' },
+    { label: 'Max Drawdown', value: `${maxDrawdown.toFixed(2)}%`, color: 'dn' },
+  ]
 
   return (
     <div>
@@ -42,9 +43,6 @@ export default function Portfolio() {
           <h1>Portfolio Tracker</h1>
           <p>Position tracking, P&L, and risk management overview</p>
         </div>
-        <button className="kt-btn kt-btn-primary">
-          <Plus size={13} style={{ marginRight: 6 }} /> Add Position
-        </button>
       </div>
 
       {/* Summary */}
@@ -73,48 +71,66 @@ export default function Portfolio() {
 
       {/* Positions Table */}
       <div className="kt-card">
-        <table className="kt-table">
-          <thead>
-            <tr>
-              <th>Symbol</th>
-              <th>Direction</th>
-              <th>Entry</th>
-              <th>Current</th>
-              <th>P&L</th>
-              <th>SL</th>
-              <th>TP</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(p => {
-              const { diff, pct } = calcPnL(p)
-              const isProfit = diff > 0
-              return (
-                <tr key={p.id}>
-                  <td className="mono" style={{ color: 'var(--kt-text)', fontWeight: 600 }}>{p.symbol}</td>
-                  <td>
-                    <span className={p.direction === 'Long' ? 'badge-bull' : 'badge-bear'}>
-                      {p.direction}
-                    </span>
-                  </td>
-                  <td className="mono">{p.entryPrice.toLocaleString()}</td>
-                  <td className="mono" style={{ color: 'var(--kt-text)' }}>{p.currentPrice.toLocaleString()}</td>
-                  <td className={`mono ${isProfit ? 'up' : 'dn'}`}>
-                    {isProfit ? '+' : ''}{pct.toFixed(2)}%
-                  </td>
-                  <td className="mono" style={{ color: 'var(--kt-dn)' }}>{p.sl.toLocaleString()}</td>
-                  <td className="mono" style={{ color: 'var(--kt-up)' }}>{p.tp.toLocaleString()}</td>
-                  <td>
-                    <span className={p.status === 'Open' ? 'badge-info' : 'badge-neutral'}>
-                      {p.status}
-                    </span>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        {isLoading ? (
+          <div className="kt-card-pad">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 8, padding: '10px 0', borderBottom: '1px solid var(--kt-border-soft)' }}>
+                {[...Array(8)].map((_, j) => <div key={j} className="skeleton h-4 w-full" />)}
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="kt-card-pad" style={{ textAlign: 'center', padding: '32px 16px' }}>
+            <p style={{ color: 'var(--kt-dn)', fontSize: 'var(--sm)' }}>Failed to load positions</p>
+          </div>
+        ) : (
+          <table className="kt-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Direction</th>
+                <th>Entry</th>
+                <th>Current</th>
+                <th>P&L</th>
+                <th>P&L %</th>
+                <th>Qty</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--kt-muted)', padding: 24 }}>No positions found</td></tr>
+              )}
+              {filtered.map(p => {
+                const isProfit = (p.pnl ?? 0) >= 0
+                return (
+                  <tr key={p.id}>
+                    <td className="mono" style={{ color: 'var(--kt-text)', fontWeight: 600 }}>{p.symbol}</td>
+                    <td>
+                      <span className={p.direction === 'Long' ? 'badge-bull' : 'badge-bear'}>
+                        {p.direction}
+                      </span>
+                    </td>
+                    <td className="mono">{p.entryPrice?.toLocaleString()}</td>
+                    <td className="mono" style={{ color: 'var(--kt-text)' }}>{p.currentPrice?.toLocaleString()}</td>
+                    <td className={`mono ${isProfit ? 'up' : 'dn'}`}>
+                      {isProfit ? '+' : ''}{(p.pnl ?? 0).toLocaleString()}
+                    </td>
+                    <td className={`mono ${isProfit ? 'up' : 'dn'}`}>
+                      {isProfit ? '+' : ''}{(p.pnlPercent ?? 0).toFixed(2)}%
+                    </td>
+                    <td className="mono">{p.quantity}</td>
+                    <td>
+                      <span className={p.status === 'Open' ? 'badge-info' : 'badge-neutral'}>
+                        {p.status}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )

@@ -33,17 +33,21 @@ export default function TradeManager() {
     refetchInterval: 15000,
   });
 
-  // Fetch live prices for active trades
+  // Fetch live prices for active trades from /api/forex/ticker
   useEffect(() => {
     const active = trades.filter((t) => t.status === 'active');
     if (!active.length) return;
     const fetchPrices = async () => {
       try {
-        const batch = await api<any>('/api/smc/batch');
+        const ticker = await api<any[]>('/api/forex/ticker');
         const map: Record<string, number> = {};
-        if (Array.isArray(batch)) {
-          for (const item of batch) {
-            if (item.symbol && item.price) map[item.symbol] = item.price;
+        if (Array.isArray(ticker)) {
+          for (const item of ticker) {
+            if (item.symbol && item.price) {
+              map[item.symbol] = item.price;
+              const normalized = item.symbol.replace('/', '');
+              map[normalized] = item.price;
+            }
           }
         }
         setPrices(map);

@@ -17,6 +17,126 @@ async function tvScan(query: object, timeframe?: string): Promise<any> {
   return res.json();
 }
 
+// ── Yahoo Finance OHLCV fetcher ──────────────────────────────────
+const YAHOO_MAP: Record<string, string> = {
+  'XAUUSD': 'GC=F', 'EURUSD': 'EURUSD=X', 'GBPUSD': 'GBPUSD=X',
+  'USDJPY': 'USDJPY=X', 'USDIDR': 'USDIDR=X', 'USDCHF': 'USDCHF=X',
+  'XAU': 'GC=F', 'BTCUSD': 'BTC-USD', 'ETHUSD': 'ETH-USD',
+};
+const YAHOO_TF: Record<string, string> = {
+  '1m': '1m', '5m': '5m', '15m': '15m', '1H': '1h', '4H': '1h', '1D': '1d',
+};
+
+async function fetchOHLCV(symbol: string, tf: string, limit: number = 50): Promise<any[]> {
+  const yahooSym = YAHOO_MAP[symbol.toUpperCase().replace('/', '')] ?? `${symbol.toUpperCase()}=X`;
+  const interval = YAHOO_TF[tf] ?? '1d';
+  // 4H: fetch 1h and aggregate
+  const needAggregate4h = tf === '4H';
+  const actualInterval = needAggregate4h ? '1h' : interval;
+  const range = actualInterval === '1m' ? '1d' : actualInterval === '5m' ? '5d' : actualInterval === '15m' ? '1mo' : actualInterval === '1h' ? '3mo' : '6mo';
+
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSym}?interval=${actualInterval}&range=${range}`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!res.ok) return [];
+  const json: any = await res.json();
+  const result = json?.chart?.result?.[0];
+  if (!result) return [];
+
+  const ts: number[] = result.timestamp ?? [];
+  const q = result.indicators?.quote?.[0] ?? {};
+  const candles: any[] = [];
+  for (let i = 0; i < ts.length; i++) {
+    if (q.open?.[i] == null || q.close?.[i] == null) continue;
+    candles.push({
+      time: ts[i],
+      open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i],
+      volume: q.volume?.[i] ?? 0,
+    });
+  }
+
+  // Aggregate 1h → 4h
+  if (needAggregate4h) {
+    const agg: any[] = [];
+    for (let i = 0; i < candles.length; i += 4) {
+      const chunk = candles.slice(i, i + 4);
+      if (chunk.length === 0) continue;
+      agg.push({
+        time: chunk[0].time,
+        open: chunk[0].open,
+        high: Math.max(...chunk.map(c => c.high)),
+        low: Math.min(...chunk.map(c => c.low)),
+        close: chunk[chunk.length - 1].close,
+        volume: chunk.reduce((s, c) => s + c.volume, 0),
+      });
+    }
+    return agg.slice(-limit);
+  }
+  return candles.slice(-limit);
+}
+
+// ── Derive SMC levels from actual candle swing structure ──────────
+function deriveSwingLevels(candles: any[], atrValue: number): any {
+  if (!candles || candles.length < 5) return null;
+
+  // Find swing highs/lows (local extremes over 3-candle lookback)
+  const swingHighs: number[] = [];
+  const swingLows: number[] = [];
+
+  for (let i = 2; i < candles.length - 2; i++) {
+    const h = candles[i].high;
+    const l = candles[i].low;
+    if (h > candles[i-1].high && h > candles[i-2].high && h > candles[i+1].high && h > candles[i+2].high) {
+      swingHighs.push(h);
+    }
+    if (l < candles[i-1].low && l < candles[i-2].low && l < candles[i+1].low && l < candles[i+2].low) {
+      swingLows.push(l);
+    }
+  }
+
+  // Also use overall high/low of the range as fallback
+  const rangeHigh = Math.max(...candles.map(c => c.high));
+  const rangeLow = Math.min(...candles.map(c => c.low));
+
+  // Get most recent significant swing high/low (last 2-3 swings)
+  const recentHighs = swingHighs.length >= 2 ? swingHighs.slice(-3) : [rangeHigh];
+  const recentLows = swingLows.length >= 2 ? swingLows.slice(-3) : [rangeLow];
+
+  // Bullish OB: last swing low zone (where buyers stepped in)
+  const bullOBLow = recentLows[recentLows.length - 1];
+  const bullOB = {
+    zone: [bullOBLow, bullOBLow + atrValue * 0.5],
+    strength: 'strong',
+  };
+
+  // Bearish OB: last swing high zone (where sellers stepped in)
+  const bearOBHigh = recentHighs[recentHighs.length - 1];
+  const bearOB = {
+    zone: [bearOBHigh - atrValue * 0.5, bearOBHigh],
+    strength: 'strong',
+  };
+
+  // FVG detection: look for gaps between consecutive candles
+  const fvgs: { type: string; zone: [number, number] }[] = [];
+  for (let i = 2; i < candles.length; i++) {
+    const prev = candles[i - 2];
+    const curr = candles[i];
+    // Bullish FVG: gap up (prev.high < curr.low)
+    if (prev.high < curr.low && (curr.low - prev.high) > atrValue * 0.15) {
+      fvgs.push({ type: 'bullish_fvg', zone: [prev.high, curr.low] });
+    }
+    // Bearish FVG: gap down (prev.low > curr.high)
+    if (prev.low > curr.high && (prev.low - curr.high) > atrValue * 0.15) {
+      fvgs.push({ type: 'bearish_fvg', zone: [curr.high, prev.low] });
+    }
+  }
+
+  // Liquidity: swing highs = BSL, swing lows = SSL
+  const bsl = rangeHigh;
+  const ssl = rangeLow;
+
+  return { bullOB, bearOB, fvgs, bsl, ssl, rangeHigh, rangeLow, swingHighs, swingLows };
+}
+
 // Get OHLCV + TA data for a symbol at a specific timeframe
 async function getForexData(symbol: string, market: string = 'cfd', tf?: string): Promise<any> {
   const result = await tvScan({
@@ -65,10 +185,10 @@ async function getForexData(symbol: string, market: string = 'cfd', tf?: string)
   };
 }
 
-// Get multi-timeframe data (daily + weekly context) for structure analysis
+// Get multi-timeframe data (scanner + candle history) for structure analysis
 export async function getMultiTFData(symbol: string, market: string, tf?: string): Promise<any> {
   const effectiveTf = tf || '1D';
-  const [tfData, weekData] = await Promise.all([
+  const [tfData, weekData, candles] = await Promise.all([
     tvScan({
       columns: ['name', 'close', 'open', 'high', 'low', 'change', 'Recommend.All', 'RSI', 'EMA20', 'EMA50', 'ATR', 'High.1D', 'Low.1D', 'High.1W', 'Low.1W', 'High.1M', 'Low.1M', 'High.All', 'Low.All'],
       filter: [{ left: 'name', operation: 'equal', right: symbol }],
@@ -82,6 +202,8 @@ export async function getMultiTFData(symbol: string, market: string, tf?: string
       markets: [market],
       range: [0, 1],
     }),
+    // Fetch actual candle history for swing-based level derivation
+    fetchOHLCV(symbol, effectiveTf, 50).catch(() => []),
   ]);
 
   const d = tfData?.data?.[0];
@@ -114,41 +236,18 @@ export async function getMultiTFData(symbol: string, market: string, tf?: string
     sma200: w?.d?.[7],
     perfWeek: w?.d?.[5],
     perfMonth: w?.d?.[6],
+    candles: candles || [],
   };
 }
 
-// SMC Analysis Engine — TF-aware levels
+// SMC Analysis Engine — uses candle-derived swing levels when available
 export function analyzeSMC(data: any, tf?: string): any {
   if (!data) return null;
 
   const { close, open, high, low, atr, ema20, ema50, sma200, rsi,
-    high1M, low1M, high1D, low1D, highAll, lowAll } = data;
+    high1M, low1M, high1D, low1D, highAll, lowAll, candles } = data;
   const high1W = data.high1W ?? high1M;
   const low1W = data.low1W ?? low1M;
-
-  // TF-specific reference levels
-  // 1H → OB from Daily, Fib from Weekly
-  // 4H → OB from Weekly, Fib from Monthly
-  // 1D → OB from Weekly, Fib from Monthly (default)
-  const effectiveTf = (tf || '1D').toUpperCase();
-  let obHigh: number, obLow: number, obLabel: string;
-  let fibHigh: number, fibLow: number, fibLabel: string;
-  let liqHigh: number, liqLow: number, liqLabel: string;
-
-  if (effectiveTf === '1H') {
-    obHigh = high1D ?? high1W; obLow = low1D ?? low1W; obLabel = 'Daily';
-    fibHigh = high1W; fibLow = low1W; fibLabel = 'Weekly';
-    liqHigh = high1D ?? high1W; liqLow = low1D ?? low1W; liqLabel = 'Daily';
-  } else if (effectiveTf === '4H') {
-    obHigh = high1W; obLow = low1W; obLabel = 'Weekly';
-    fibHigh = high1M; fibLow = low1M; fibLabel = 'Monthly';
-    liqHigh = high1W; liqLow = low1W; liqLabel = 'Weekly';
-  } else {
-    // 1D, 1W, default
-    obHigh = high1W; obLow = low1W; obLabel = 'Weekly';
-    fibHigh = high1M; fibLow = low1M; fibLabel = 'Monthly';
-    liqHigh = high1W; liqLow = low1W; liqLabel = 'Weekly';
-  }
 
   const levels: any[] = [];
   let bias = 'neutral';
@@ -160,24 +259,56 @@ export function analyzeSMC(data: any, tf?: string): any {
   const priceVsEma = close > ema20 ? 'bullish' : 'bearish';
   const longTermBias = close > sma200 ? 'bullish' : 'bearish';
 
-  // === ORDER BLOCKS ===
   const atrValue = atr ?? (high - low);
 
-  const bullishOB = {
-    type: 'bullish_ob',
-    zone: [obLow, obLow + atrValue * 0.5],
-    label: `Bullish OB (${obLabel} Low)`,
-    strength: close < obLow + atrValue ? 'strong' : 'moderate',
-  };
+  // === LEVEL DERIVATION: candle swings if available, else fallback ===
+  const effectiveTf = (tf || '1D').toUpperCase();
+  const hasCandles = candles && candles.length >= 5;
 
-  const bearishOB = {
-    type: 'bearish_ob',
-    zone: [obHigh - atrValue * 0.5, obHigh],
-    label: `Bearish OB (${obLabel} High)`,
-    strength: close > obHigh - atrValue ? 'strong' : 'moderate',
-  };
+  let bullOB: any, bearOB: any, fvgs: any[], bsl: number, ssl: number;
 
-  levels.push(bullishOB, bearishOB);
+  if (hasCandles) {
+    // Derive from actual candle swing structure
+    const swings = deriveSwingLevels(candles, atrValue);
+    bullOB = {
+      type: 'bullish_ob',
+      zone: swings.bullOB.zone,
+      label: `Bull OB (Swing Low)`,
+      strength: close < swings.bullOB.zone[1] + atrValue ? 'strong' : 'moderate',
+    };
+    bearOB = {
+      type: 'bearish_ob',
+      zone: swings.bearOB.zone,
+      label: `Bear OB (Swing High)`,
+      strength: close > swings.bearOB.zone[0] - atrValue ? 'strong' : 'moderate',
+    };
+    fvgs = swings.fvgs.map((f: any) => ({
+      type: f.type,
+      zone: f.zone,
+      label: f.type === 'bullish_fvg' ? 'Bullish FVG' : 'Bearish FVG',
+      strength: 'moderate',
+    }));
+    bsl = swings.bsl;
+    ssl = swings.ssl;
+  } else {
+    // Fallback: use scanner reference levels (legacy behavior)
+    let obHigh: number, obLow: number, obLabel: string;
+    if (effectiveTf === '1H') {
+      obHigh = high1D ?? high1W; obLow = low1D ?? low1W; obLabel = 'Daily';
+    } else if (effectiveTf === '4H') {
+      obHigh = high1W; obLow = low1W; obLabel = 'Weekly';
+    } else {
+      obHigh = high1W; obLow = low1W; obLabel = 'Weekly';
+    }
+    bullOB = { type: 'bullish_ob', zone: [obLow, obLow + atrValue * 0.5], label: `Bull OB (${obLabel})`, strength: close < obLow + atrValue ? 'strong' : 'moderate' };
+    bearOB = { type: 'bearish_ob', zone: [obHigh - atrValue * 0.5, obHigh], label: `Bear OB (${obLabel})`, strength: close > obHigh - atrValue ? 'strong' : 'moderate' };
+    fvgs = [];
+    bsl = obHigh;
+    ssl = obLow;
+  }
+
+  levels.push(bullOB, bearOB);
+  for (const f of fvgs) levels.push(f);
 
   // === FAIR VALUE GAPS ===
   const bodySize = Math.abs(close - open);
@@ -204,47 +335,50 @@ export function analyzeSMC(data: any, tf?: string): any {
   }
 
   // === PREMIUM / DISCOUNT ZONES ===
-  const rangeFib = fibHigh - fibLow;
-  const midpoint = fibLow + rangeFib * 0.5;
-  const fib618 = fibLow + rangeFib * 0.618;
-  const fib382 = fibLow + rangeFib * 0.382;
+  // Use swing range if available, else scanner levels
+  const fibHighVal = hasCandles ? Math.max(...(candles as any[]).map((c: any) => c.high)) : (high1M || high1W || high);
+  const fibLowVal = hasCandles ? Math.min(...(candles as any[]).map((c: any) => c.low)) : (low1M || low1W || low);
+  const rangeFib = fibHighVal - fibLowVal;
+  const midpoint = fibLowVal + rangeFib * 0.5;
+  const fib618 = fibLowVal + rangeFib * 0.618;
+  const fib382 = fibLowVal + rangeFib * 0.382;
 
   const premiumDiscount = close > midpoint ? 'premium' : 'discount';
 
   levels.push({
     type: 'equilibrium',
     zone: [midpoint, midpoint],
-    label: `Equilibrium (${fibLabel}): ${midpoint.toFixed(2)}`,
+    label: `EQ: ${midpoint.toFixed(2)}`,
     strength: 'key',
   });
 
   levels.push({
     type: 'fib_618',
     zone: [fib618, fib618],
-    label: `Fib 61.8% (${fibLabel}): ${fib618.toFixed(2)}`,
+    label: `Fib 61.8%: ${fib618.toFixed(2)}`,
     strength: 'key',
   });
 
   levels.push({
     type: 'fib_382',
     zone: [fib382, fib382],
-    label: `Fib 38.2% (${fibLabel}): ${fib382.toFixed(2)}`,
+    label: `Fib 38.2%: ${fib382.toFixed(2)}`,
     strength: 'key',
   });
 
   // === LIQUIDITY POOLS ===
   levels.push({
     type: 'liquidity_high',
-    zone: [liqHigh, liqHigh + atrValue * 0.3],
-    label: `BSL (${liqLabel} High)`,
-    strength: close > liqHigh - atrValue * 0.5 ? 'imminent' : 'distant',
+    zone: [bsl, bsl + atrValue * 0.3],
+    label: `BSL: ${bsl.toFixed(2)}`,
+    strength: close > bsl - atrValue * 0.5 ? 'imminent' : 'distant',
   });
 
   levels.push({
     type: 'liquidity_low',
-    zone: [liqLow - atrValue * 0.3, liqLow],
-    label: `SSL (${liqLabel} Low)`,
-    strength: close < liqLow + atrValue * 0.5 ? 'imminent' : 'distant',
+    zone: [ssl - atrValue * 0.3, ssl],
+    label: `SSL: ${ssl.toFixed(2)}`,
+    strength: close < ssl + atrValue * 0.5 ? 'imminent' : 'distant',
   });
 
   // === KILL ZONE DETECTION ===
