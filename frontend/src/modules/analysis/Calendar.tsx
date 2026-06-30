@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
-import { Clock, AlertTriangle, ShieldAlert } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Clock, AlertTriangle, ShieldAlert, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '../../lib/api'
 
 /* ── types ─────────────────────────────────────────────────────────── */
@@ -62,6 +62,227 @@ function formatCountdown(ms: number): string {
 
 function todayWIB(): string {
   return wibDayKey(new Date().toISOString())
+}
+
+/* ── gold bias logic ──────────────────────────────────────────────── */
+type GoldBias = 'bullish' | 'bearish' | 'neutral' | 'volatile'
+
+interface GoldEvent {
+  event: string
+  impact: string
+  bias: GoldBias
+  time: string
+  forecast: string
+  actual: string | null
+  reasoning: string
+}
+
+interface GoldBiasResult {
+  overall: GoldBias
+  bullishCount: number
+  bearishCount: number
+  total: number
+  pct: number
+  events: GoldEvent[]
+  summary: string
+}
+
+function mapGoldBias(ev: CalendarEvent): GoldBias | null {
+  if (ev.currency !== 'USD') return null
+  if (ev.impact !== 'HIGH' && ev.impact !== 'MEDIUM') return null
+
+  const name = ev.event.toLowerCase()
+  const f = parseFloat(ev.forecast)
+  const a = ev.actual ? parseFloat(ev.actual) : null
+
+  // Fed speeches → volatile
+  if (name.includes('fed') && (name.includes('speech') || name.includes('chair') || name.includes('testimony') || name.includes('powell'))) {
+    return 'volatile'
+  }
+  if (name.includes('fomc') || name.includes('interest rate') || name.includes('fed rate')) {
+    return 'volatile'
+  }
+
+  // If no actual yet, can't determine
+  if (a === null || isNaN(a) || isNaN(f)) return null
+
+  // NFP / Employment
+  if (name.includes('non-farm') || name.includes('nonfarm') || name.includes('nfp') || name.includes('employment change')) {
+    return a < f ? 'bullish' : a > f ? 'bearish' : 'neutral' // weak labor → gold up
+  }
+  if (name.includes('unemployment rate') || name.includes('jobless') || name.includes('initial claims')) {
+    return a > f ? 'bullish' : a < f ? 'bearish' : 'neutral' // higher unemployment → gold up
+  }
+
+  // CPI / Inflation
+  if (name.includes('cpi') || name.includes('consumer price')) {
+    return a < f ? 'bullish' : a > f ? 'bearish' : 'neutral' // lower CPI → less hawkish → gold up
+  }
+  if (name.includes('ppi') || name.includes('producer price')) {
+    return a < f ? 'bullish' : a > f ? 'bearish' : 'neutral'
+  }
+
+  // GDP
+  if (name.includes('gdp')) {
+    return a < f ? 'bullish' : a > f ? 'bearish' : 'neutral' // weak GDP → gold up
+  }
+
+  // ISM PMI
+  if (name.includes('ism') || name.includes('pmi')) {
+    return a < f ? 'bullish' : a > f ? 'bearish' : 'neutral'
+  }
+
+  // Retail Sales
+  if (name.includes('retail sales') || name.includes('retail')) {
+    return a < f ? 'bullish' : a > f ? 'bearish' : 'neutral'
+  }
+
+  // Consumer Confidence
+  if (name.includes('consumer confidence') || name.includes('consumer sentiment')) {
+    return a < f ? 'bullish' : a > f ? 'bearish' : 'neutral'
+  }
+
+  // Default: strong USD data → bearish gold
+  return a > f ? 'bearish' : a < f ? 'bullish' : 'neutral'
+}
+
+function computeGoldBias(events: CalendarEvent[]): GoldBiasResult {
+  const now = Date.now()
+  const usdHighMed = events.filter(e =>
+    e.currency === 'USD' && (e.impact === 'HIGH' || e.impact === 'MEDIUM') &&
+    new Date(e.time).getTime() > now - 24 * 3600_000 // within last 24h or future
+  )
+
+  const goldEvents: GoldEvent[] = []
+  let bullishCount = 0
+  let bearishCount = 0
+  let volatileCount = 0
+
+  for (const ev of usdHighMed) {
+    const bias = mapGoldBias(ev)
+    if (bias === null) continue
+
+    const reasoning = bias === 'bullish'
+      ? `Weak USD data (actual ${ev.actual} < forecast ${ev.forecast}) → Gold bullish`
+      : bias === 'bearish'
+        ? `Strong USD data (actual ${ev.actual} > forecast ${ev.forecast}) → Gold bearish`
+        : bias === 'volatile'
+          ? 'Fed event — expect volatility in Gold'
+          : 'Data in line with forecast → neutral impact'
+
+    goldEvents.push({
+      event: ev.event,
+      impact: ev.impact,
+      bias,
+      time: ev.time,
+      forecast: ev.forecast,
+      actual: ev.actual,
+      reasoning,
+    })
+
+    if (bias === 'bullish') bullishCount++
+    else if (bias === 'bearish') bearishCount++
+    else if (bias === 'volatile') volatileCount++
+  }
+
+  const total = bullishCount + bearishCount
+  const pct = total > 0 ? Math.round((Math.max(bullishCount, bearishCount) / total) * 100) : 50
+  const overall: GoldBias = bullishCount > bearishCount ? 'bullish' : bearishCount > bullishCount ? 'bearish' : volatileCount > 0 ? 'volatile' : 'neutral'
+
+  const summary = total === 0
+    ? 'No recent high/medium USD events with data to analyze.'
+    : overall === 'bullish'
+      ? `${bullishCount}/${total} USD data points came in weak → Gold bias is bullish.`
+      : overall === 'bearish'
+        ? `${bearishCount}/${total} USD data points came in strong → Gold bias is bearish.`
+        : overall === 'volatile'
+          ? 'Fed event incoming — expect Gold volatility regardless of data.'
+          : 'Mixed USD data — Gold bias is neutral.'
+
+  return { overall, bullishCount, bearishCount, total, pct, events: goldEvents, summary }
+}
+
+/* ── gold bias card ───────────────────────────────────────────────── */
+function GoldBiasCard({ result }: { result: GoldBiasResult }) {
+  const [expanded, setExpanded] = useState(false)
+  const biasIcon = result.overall === 'bullish' ? TrendingUp : result.overall === 'bearish' ? TrendingDown : Minus
+  const biasColor = result.overall === 'bullish' ? 'var(--kt-up)' : result.overall === 'bearish' ? 'var(--kt-dn)' : result.overall === 'volatile' ? '#f59e0b' : 'var(--kt-muted)'
+  const biasLabel = result.overall === 'volatile' ? '→ Volatile' : result.overall === 'bullish' ? '↑ Bullish' : result.overall === 'bearish' ? '↓ Bearish' : '→ Neutral'
+  const BiasIcon = biasIcon
+
+  return (
+    <div className="kt-card" style={{ marginBottom: 12 }}>
+      <button
+        onClick={() => setExpanded(v => !v)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+          padding: '14px 18px', background: 'transparent', border: 'none',
+          cursor: 'pointer', textAlign: 'left',
+        }}
+      >
+        <BiasIcon size={20} style={{ color: biasColor }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontWeight: 700, color: 'var(--kt-text)', fontSize: 'var(--md)' }}>
+              USD → Gold Bias
+            </span>
+            <span style={{
+              color: biasColor, fontWeight: 800, fontSize: 'var(--md)',
+              fontFamily: 'var(--font-mono)',
+            }}>
+              {biasLabel}
+            </span>
+          </div>
+          <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', marginTop: 2 }}>
+            {result.summary}
+          </div>
+        </div>
+        {result.total > 0 && (
+          <span className="mono" style={{ color: biasColor, fontSize: 'var(--lg)', fontWeight: 700 }}>
+            {result.pct}%
+          </span>
+        )}
+        {expanded ? <ChevronUp size={16} style={{ color: 'var(--kt-muted)' }} /> : <ChevronDown size={16} style={{ color: 'var(--kt-muted)' }} />}
+      </button>
+
+      {expanded && result.events.length > 0 && (
+        <div style={{ padding: '0 18px 14px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 72px 100px',
+            gap: 8, padding: '6px 0',
+            fontSize: 'var(--xs)', color: 'var(--kt-muted)',
+            fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+            borderBottom: '1px solid var(--kt-border)',
+          }}>
+            <span>Event</span>
+            <span>Impact</span>
+            <span>Gold Bias</span>
+          </div>
+          {result.events.map((ev, i) => {
+            const evColor = ev.bias === 'bullish' ? 'var(--kt-up)' : ev.bias === 'bearish' ? 'var(--kt-dn)' : ev.bias === 'volatile' ? '#f59e0b' : 'var(--kt-muted)'
+            const EvIcon = ev.bias === 'bullish' ? TrendingUp : ev.bias === 'bearish' ? TrendingDown : Minus
+            return (
+              <div key={i} style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 72px 100px',
+                gap: 8, padding: '8px 0',
+                fontSize: 'var(--sm)', borderBottom: '1px solid var(--kt-border-soft)',
+                alignItems: 'center',
+              }}>
+                <span style={{ color: 'var(--kt-text2)' }}>{ev.event}</span>
+                <ImpactBadge impact={ev.impact} />
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: evColor, fontWeight: 700, fontSize: 'var(--xs)' }}>
+                  <EvIcon size={12} />
+                  {ev.bias.charAt(0).toUpperCase() + ev.bias.slice(1)}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /* ── sub-components ────────────────────────────────────────────────── */
@@ -211,6 +432,9 @@ export default function Calendar() {
       {preNewsBlock.map((e, i) => (
         <PreNewsBanner key={`block-${i}`} event={e} />
       ))}
+
+      {/* ── gold bias card ── */}
+      {events.length > 0 && <GoldBiasCard result={computeGoldBias(events)} />}
 
       {/* ── calendar table ── */}
       <div className="kt-panel">

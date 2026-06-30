@@ -476,6 +476,273 @@ analysisRoutes.get('/sentiment/:symbol', async (c) => {
   }
 });
 
+// Symbol → Yahoo symbol mapping
+const YAHOO_MAP: Record<string, string> = {
+  'XAUUSD': 'GC=F',
+  'EURUSD': 'EURUSD=X',
+  'GBPUSD': 'GBPUSD=X',
+  'USDJPY': 'USDJPY=X',
+  'USDIDR': 'USDIDR=X',
+  'USDCHF': 'USDCHF=X',
+  'XAU': 'GC=F',
+  'BTCUSD': 'BTC-USD',
+  'ETHUSD': 'ETH-USD',
+};
+
+function toYahooSymbol(symbol: string): string {
+  const upper = symbol.toUpperCase().replace('/', '');
+  return YAHOO_MAP[upper] ?? (upper.endsWith('=X') ? upper : `${upper}=X`);
+}
+
+// Interval mapping for Yahoo
+const YAHOO_INTERVALS: Record<string, string> = {
+  '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+  '1h': '1h', '4h': '1h', // Yahoo doesn't support 4h natively, fetch 1h
+  '1d': '1d', 'D': '1d', '1D': '1d',
+  '1w': '1wk', 'W': '1wk', '1W': '1wk',
+  '1M': '1mo', 'M': '1mo',
+};
+
+// Range mapping based on interval + limit
+function yahooRange(interval: string, limit: number): string {
+  if (interval === '1m') return limit <= 60 ? '1d' : '5d';
+  if (interval === '5m') return limit <= 78 ? '5d' : '1mo';
+  if (interval === '15m') return '1mo';
+  if (interval === '30m') return '1mo';
+  if (interval === '1h' || interval === '4h') return '3mo';
+  if (interval === '1d' || interval === 'D' || interval === '1D') return limit <= 100 ? '6mo' : '2y';
+  if (interval === '1wk' || interval === 'W' || interval === '1W') return '2y';
+  if (interval === '1mo' || interval === 'M') return '5y';
+  return '6mo';
+}
+
+// GET /api/analysis/ohlcv?symbol=XAUUSD&interval=4h&limit=200
+analysisRoutes.get('/ohlcv', async (c) => {
+  const symbol = c.req.query('symbol') ?? 'XAUUSD';
+  const interval = c.req.query('interval') ?? '4h';
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '200', 10), 1000);
+  const cache = new Cache(c.env.AEGIS_CACHE, 120);
+
+  try {
+    const yahooSymbol = toYahooSymbol(symbol);
+    const yahooInterval = YAHOO_INTERVALS[interval] ?? '1d';
+    const range = yahooRange(interval, limit);
+
+    const key = `ohlcv:${symbol}:${interval}:${limit}`;
+    const data = await cache.getOrSet(key, async () => {
+      const chart = await fetchChart(yahooSymbol, yahooInterval, range);
+      const result = chart.chart?.result?.[0];
+      if (!result) return null;
+
+      const timestamps: number[] = result.timestamp ?? [];
+      const q = result.indicators?.quote?.[0] ?? {};
+      const opens: (number | null)[] = q.open ?? [];
+      const highs: (number | null)[] = q.high ?? [];
+      const lows: (number | null)[] = q.low ?? [];
+      const closes: (number | null)[] = q.close ?? [];
+      const volumes: (number | null)[] = q.volume ?? [];
+
+      // For 4h, aggregate 1h candles into 4h
+      if (interval === '4h') {
+        const aggregated: any[] = [];
+        for (let i = 0; i < timestamps.length; i += 4) {
+          const chunk = { start: i, end: Math.min(i + 4, timestamps.length) };
+          const chunkOpens = opens.slice(chunk.start, chunk.end).filter(v => v != null) as number[];
+          const chunkHighs = highs.slice(chunk.start, chunk.end).filter(v => v != null) as number[];
+          const chunkLows = lows.slice(chunk.start, chunk.end).filter(v => v != null) as number[];
+          const chunkCloses = closes.slice(chunk.start, chunk.end).filter(v => v != null) as number[];
+          const chunkVolumes = volumes.slice(chunk.start, chunk.end).filter(v => v != null) as number[];
+
+          if (chunkOpens.length === 0) continue;
+
+          aggregated.push({
+            time: timestamps[chunk.start],
+            open: chunkOpens[0],
+            high: Math.max(...chunkHighs),
+            low: Math.min(...chunkLows),
+            close: chunkCloses[chunkCloses.length - 1],
+            volume: chunkVolumes.reduce((a, b) => a + b, 0),
+          });
+        }
+        return aggregated.slice(-limit);
+      }
+
+      // Standard mapping
+      const candles: any[] = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        if (opens[i] == null || closes[i] == null) continue;
+        candles.push({
+          time: timestamps[i],
+          open: opens[i],
+          high: highs[i] ?? opens[i],
+          low: lows[i] ?? opens[i],
+          close: closes[i],
+          volume: volumes[i] ?? 0,
+        });
+      }
+      return candles.slice(-limit);
+    }, { ttl: 120 });
+
+    if (!data) return c.json({ error: 'No data available' }, 404);
+    return c.json({ status: 'ok', data });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 502);
+  }
+});
+
+// Narrative text builder — template-based, no AI
+function buildNarrative(smcData: any, symbol: string, timeframe: string): any {
+  if (!smcData) return null;
+
+  const { bias, confidence, premiumDiscount, killZone, bullScore, bearScore,
+    signals, levels, tradeSetup, structure, meta } = smcData;
+  const price = meta?.ema20 ?? 0; // approximate current price
+  const close = price; // fallback
+
+  // --- Market Structure ---
+  const emaDesc = structure.emaBias === 'bullish'
+    ? `EMA20 (${meta?.ema20?.toFixed(1)}) trades above EMA50 (${meta?.ema50?.toFixed(1)}), confirming bullish momentum.`
+    : structure.emaBias === 'bearish'
+      ? `EMA20 (${meta?.ema20?.toFixed(1)}) trades below EMA50 (${meta?.ema50?.toFixed(1)}), confirming bearish momentum.`
+      : `EMA20 and EMA50 are intertwined, suggesting a ranging market.`;
+
+  const longTermDesc = structure.longTermBias === 'bullish'
+    ? `Price holds above the 200 SMA, maintaining the long-term bullish structure.`
+    : `Price trades below the 200 SMA, indicating long-term bearish pressure.`;
+
+  const rsiDesc = meta?.rsi < 30
+    ? `RSI at ${meta.rsi.toFixed(0)} signals oversold conditions — potential reversal zone.`
+    : meta?.rsi > 70
+      ? `RSI at ${meta.rsi.toFixed(0)} signals overbought conditions — watch for exhaustion.`
+      : `RSI at ${meta?.rsi?.toFixed(0)} sits in neutral territory.`;
+
+  const structSummary = bias === 'bullish'
+    ? `${timeframe} structure is bullish with ${confidence}% confidence. Price is ${premiumDiscount === 'discount' ? 'in the discount zone, offering favorable long entries' : 'in the premium zone — wait for a pullback'}.`
+    : bias === 'bearish'
+      ? `${timeframe} structure is bearish with ${confidence}% confidence. Price is ${premiumDiscount === 'premium' ? 'in the premium zone, offering favorable short entries' : 'in the discount zone — wait for a rally'}.`
+      : `${timeframe} structure shows no clear directional bias. Market is consolidating — wait for a breakout.`;
+
+  const structBullets = [
+    emaDesc,
+    longTermDesc,
+    rsiDesc,
+    `Premium/Discount: Price in ${premiumDiscount} zone relative to 1M range.`,
+    killZone !== 'none' ? `Active kill zone: ${killZone.replace('_', ' ').toUpperCase()}.` : 'Outside kill zone — reduced liquidity expected.',
+  ];
+
+  // --- Liquidity Behaviour ---
+  const obLevels = levels.filter((l: any) => l.type.includes('_ob'));
+  const fvgLevels = levels.filter((l: any) => l.type.includes('_fvg'));
+  const liqLevels = levels.filter((l: any) => l.type.includes('liquidity'));
+  const fibLevels = levels.filter((l: any) => l.type.startsWith('fib_'));
+
+  const bullOB = obLevels.find((l: any) => l.type === 'bullish_ob');
+  const bearOB = obLevels.find((l: any) => l.type === 'bearish_ob');
+
+  const liqSummaryParts: string[] = [];
+  if (bullOB) liqSummaryParts.push(`A bullish order block sits at ${bullOB.zone[0].toFixed(2)}–${bullOB.zone[1].toFixed(2)}, suggesting institutional buying interest.`);
+  if (bearOB) liqSummaryParts.push(`A bearish order block sits at ${bearOB.zone[0].toFixed(2)}–${bearOB.zone[1].toFixed(2)}, suggesting institutional selling pressure.`);
+  if (fvgLevels.length > 0) liqSummaryParts.push(`${fvgLevels.length} fair value gap${fvgLevels.length > 1 ? 's' : ''} detected — potential magnet zones for price retracement.`);
+
+  const liqSummary = liqSummaryParts.length > 0
+    ? liqSummaryParts.join(' ')
+    : 'No significant liquidity structures detected at current levels.';
+
+  const liqBullets: string[] = [];
+  if (obLevels.length > 0) {
+    liqBullets.push(`Order Blocks: ${obLevels.map((l: any) => `${l.label} @ ${l.zone[0].toFixed(2)}–${l.zone[1].toFixed(2)}`).join(', ')}`);
+  }
+  if (fvgLevels.length > 0) {
+    liqBullets.push(`FVGs: ${fvgLevels.map((l: any) => `${l.label} @ ${l.zone[0].toFixed(2)}–${l.zone[1].toFixed(2)}`).join(', ')}`);
+  }
+  if (liqLevels.length > 0) {
+    liqBullets.push(`Liquidity Pools: ${liqLevels.map((l: any) => `${l.label} @ ${l.zone[0].toFixed(2)}`).join(', ')}`);
+  }
+
+  const importantZones = [
+    ...obLevels.map((l: any) => ({ level: `${l.zone[0].toFixed(2)}–${l.zone[1].toFixed(2)}`, label: l.label })),
+    ...liqLevels.map((l: any) => ({ level: `${l.zone[0].toFixed(2)}`, label: l.label })),
+  ].slice(0, 6);
+
+  const keyRead = [
+    bias === 'bullish'
+      ? `Bullish order block at ${bullOB?.zone?.[0]?.toFixed(2) ?? 'N/A'} is the key demand zone — a hold here validates long setups.`
+      : bias === 'bearish'
+        ? `Bearish order block at ${bearOB?.zone?.[0]?.toFixed(2) ?? 'N/A'} is the key supply zone — a rejection here validates short setups.`
+        : `No dominant order block — watch for structure break before committing.`,
+    `Fib 61.8% at ${fibLevels.find((l: any) => l.type === 'fib_618')?.zone?.[0]?.toFixed(2) ?? 'N/A'} — golden pocket for retracement entries.`,
+    `Buy-side liquidity rests at ${liqLevels.find((l: any) => l.type === 'liquidity_high')?.zone?.[0]?.toFixed(2) ?? 'N/A'} — a sweep targets this level.`,
+  ];
+
+  // --- Scenarios ---
+  const primaryProb = bias === 'bullish' ? Math.min(75, confidence + 5) : bias === 'bearish' ? Math.min(75, confidence + 5) : 45;
+  const altProb = 100 - primaryProb;
+
+  const primaryDesc = bias === 'bullish'
+    ? `Price holds above the bullish OB and breaks higher, targeting the buy-side liquidity at ${liqLevels.find((l: any) => l.type === 'liquidity_high')?.zone?.[0]?.toFixed(2) ?? 'resistance'}.`
+    : bias === 'bearish'
+      ? `Price rejects from the bearish OB and breaks lower, targeting the sell-side liquidity at ${liqLevels.find((l: any) => l.type === 'liquidity_low')?.zone?.[0]?.toFixed(2) ?? 'support'}.`
+      : `Range-bound movement between key OB levels until a clear breakout.`;
+
+  const altDesc = bias === 'bullish'
+    ? `Price fails to hold the bullish OB, sweeps sell-side liquidity before potential reversal.`
+    : bias === 'bearish'
+      ? `Price invalidates the bearish setup by breaking above the OB, triggering a short squeeze.`
+      : `Strong breakout from the range, targeting the opposite liquidity pool.`;
+
+  const primaryTargets = tradeSetup
+    ? [`TP1: ${tradeSetup.tp1?.toFixed(2)}`, `TP2: ${tradeSetup.tp2?.toFixed(2)}`, `TP3: ${tradeSetup.tp3?.toFixed(2)}`]
+    : ['No trade setup available'];
+
+  const altTargets = tradeSetup
+    ? [`Reversal target: ${tradeSetup.sl?.toFixed(2)}`, `Extended: ${tradeSetup.entry?.toFixed(2)}`]
+    : ['Monitor for invalidation'];
+
+  const scenarios = {
+    primary: { probability: primaryProb, description: primaryDesc, targets: primaryTargets },
+    alternative: { probability: altProb, description: altDesc, targets: altTargets },
+  };
+
+  return {
+    symbol,
+    timeframe,
+    date: new Date().toISOString(),
+    marketStructure: { summary: structSummary, bullets: structBullets },
+    liquidityBehaviour: { summary: liqSummary, bullets: liqBullets, importantZones, keyRead },
+    scenarios,
+  };
+}
+
+// GET /api/analysis/narrative?symbol=XAUUSD&tf=4h
+analysisRoutes.get('/narrative', async (c) => {
+  const symbol = (c.req.query('symbol') ?? 'XAUUSD').toUpperCase().replace('/', '');
+  const tf = c.req.query('tf') ?? '4h';
+  const cache = new Cache(c.env.AEGIS_CACHE, 180);
+
+  try {
+    const key = `narrative:${symbol}:${tf}`;
+    const data = await cache.getOrSet(key, async () => {
+      // Map frontend TF to SMC TF
+      const smcTfMap: Record<string, string> = { '1h': '1H', '4h': '4H', '1d': '1D', 'D': '1D', '1D': '1D' };
+      const smcTf = smcTfMap[tf] ?? '1D';
+      const market = (symbol === 'XAUUSD' || symbol === 'XAU') ? 'cfd' : 'forex';
+
+      const { getMultiTFData, analyzeSMC } = await import('./smc');
+      const rawData = await getMultiTFData(symbol, market, smcTf);
+      if (!rawData) return null;
+      const smcResult = analyzeSMC(rawData);
+      if (!smcResult) return null;
+
+      return buildNarrative(smcResult, symbol, tf);
+    }, { ttl: 180 });
+
+    if (!data) return c.json({ error: 'Symbol not found' }, 404);
+    return c.json({ status: 'ok', data });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 502);
+  }
+});
+
 // GET /api/analysis/news/:symbol — news for symbol
 analysisRoutes.get('/news/:symbol', async (c) => {
   const symbol = c.req.param('symbol');

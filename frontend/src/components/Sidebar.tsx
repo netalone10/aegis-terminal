@@ -1,14 +1,16 @@
 import { NavLink } from 'react-router-dom'
-import { Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart, Briefcase, Bot, DollarSign, FileText } from 'lucide-react'
+import { Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart, Briefcase, Bot, DollarSign, FileText, ScrollText, Calendar } from 'lucide-react'
 
 const navItems = [
   { to: '/', label: 'Home', icon: Home },
   { to: '/market', label: 'Market', icon: BarChart3 },
   { to: '/decision', label: 'SMC', icon: Crosshair },
+  { to: '/chart', label: 'Chart', icon: CandlestickChart },
+  { to: '/narrative', label: 'Narrative', icon: ScrollText },
+  { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/macro', label: 'Macro', icon: Globe },
   { to: '/journal', label: 'Journal', icon: BookOpen },
   { to: '/scanner', label: 'Scanner', icon: ScanLine },
-  { to: '/chart', label: 'Chart', icon: CandlestickChart },
   { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { to: '/session-report', label: 'Report', icon: FileText },
   { to: '/ai', label: 'AI', icon: Bot },

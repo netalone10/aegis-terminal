@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart,
   Briefcase, Bot, DollarSign, Sparkles, Calendar as CalendarIcon, Calculator,
-  Timer, Layers, Grid3x3, Map, FileText, FlaskConical, Activity
+  Timer, Layers, Grid3x3, Map, FileText, FlaskConical, Activity, ScrollText
 } from 'lucide-react'
 import TopBar from './components/TopBar'
 import HomeModule from './modules/home/Home'
@@ -30,6 +30,7 @@ import SessionReport from './modules/analysis/SessionReport'
 import StructureMap from './modules/analysis/StructureMap'
 import Correlation from './modules/analysis/Correlation'
 import TradePlan from './modules/analysis/TradePlan'
+import AnalysisNarrative from './modules/analysis/AnalysisNarrative'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,7 @@ const navItems = [
   { to: '/sessions', label: 'Sessions', icon: BarChart3 },
   { to: '/session-report', label: 'Report', icon: BarChart3 },
   { to: '/backtest', label: 'Backtest', icon: FlaskConical },
+  { to: '/narrative', label: 'Narrative', icon: ScrollText },
   { to: '/about', label: 'About', icon: Sparkles },
 ]
 
@@ -99,6 +101,7 @@ function AppShell() {
             <Route path="/sessions" element={<SessionAnalytics />} />
             <Route path="/session-report" element={<SessionReport />} />
             <Route path="/backtest" element={<Backtest />} />
+            <Route path="/narrative" element={<AnalysisNarrative />} />
             <Route path="/about" element={<Landing />} />
           </Routes>
         </main>
