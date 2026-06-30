@@ -14,5 +14,5 @@ export async function api<T = any>(path: string, options?: RequestInit): Promise
     throw new Error(`API error ${res.status}: ${error}`);
   }
   const json = await res.json();
-  return json.data ?? json;
+  return json.data !== undefined ? json.data : json;
 }
