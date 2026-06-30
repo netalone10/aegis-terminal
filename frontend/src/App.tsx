@@ -26,6 +26,7 @@ import Sentiment from './modules/analysis/Sentiment'
 import Calendar from './modules/analysis/Calendar'
 import Backtest from './modules/analysis/Backtest'
 import SessionAnalytics from './modules/analysis/SessionAnalytics'
+import SessionReport from './modules/analysis/SessionReport'
 import StructureMap from './modules/analysis/StructureMap'
 import Correlation from './modules/analysis/Correlation'
 import TradePlan from './modules/analysis/TradePlan'
@@ -63,6 +64,7 @@ const navItems = [
   { to: '/rates', label: 'Rates', icon: DollarSign },
   { to: '/calendar', label: 'Calendar', icon: CalendarIcon },
   { to: '/sessions', label: 'Sessions', icon: BarChart3 },
+  { to: '/session-report', label: 'Report', icon: BarChart3 },
   { to: '/backtest', label: 'Backtest', icon: FlaskConical },
   { to: '/about', label: 'About', icon: Sparkles },
 ]
@@ -95,6 +97,7 @@ function AppShell() {
             <Route path="/rates" element={<Rates />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/sessions" element={<SessionAnalytics />} />
+            <Route path="/session-report" element={<SessionReport />} />
             <Route path="/backtest" element={<Backtest />} />
             <Route path="/about" element={<Landing />} />
           </Routes>

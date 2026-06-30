@@ -15,6 +15,7 @@ import { tradeRoutes } from './routes/trade';
 import { planRoutes } from './routes/plan';
 import { sentimentRoutes } from './routes/sentiment';
 import { backtestRoutes } from './routes/backtest';
+import { sessionRoutes } from './routes/session';
 import { Cache } from './cache';
 
 export type Bindings = {
@@ -43,6 +44,7 @@ app.route('/api/trades', tradeRoutes);
 app.route('/api/plan', planRoutes);
 app.route('/api/sentiment', sentimentRoutes);
 app.route('/api/backtest', backtestRoutes);
+app.route('/api/session', sessionRoutes);
 
 app.get('/', (c) => c.json({ status: 'ok', service: 'aegis-terminal-api', version: '1.1.0' }));
 
@@ -73,6 +75,24 @@ async function handleScheduled(event: ScheduledEvent, env: Bindings) {
   await Promise.allSettled(warmUrls.map(url =>
     fetch(url).then(r => console.log(`Cron warm: ${url} ${r.status}`)).catch(e => console.error(`Cron warm fail: ${url}`, e))
   ));
+
+  // Pre-warm session reports at session start times
+  // Asia: 00:30 UTC (07:30 WIB), London: 06:15 UTC (13:15 WIB), NY: 11:15 UTC (18:15 WIB)
+  const utcHour = new Date().getUTCHours();
+  const utcMin = new Date().getUTCMinutes();
+  const sessionWarmUrls: string[] = [];
+  if (utcHour === 0 && utcMin >= 25 && utcMin <= 35) {
+    sessionWarmUrls.push('https://aegisterminal.app/api/session/report/refresh?session=asia');
+  } else if (utcHour === 6 && utcMin >= 10 && utcMin <= 20) {
+    sessionWarmUrls.push('https://aegisterminal.app/api/session/report/refresh?session=london');
+  } else if (utcHour === 11 && utcMin >= 10 && utcMin <= 20) {
+    sessionWarmUrls.push('https://aegisterminal.app/api/session/report/refresh?session=ny');
+  }
+  if (sessionWarmUrls.length > 0) {
+    await Promise.allSettled(sessionWarmUrls.map(url =>
+      fetch(url).then(r => console.log(`Cron session: ${url} ${r.status}`)).catch(e => console.error(`Cron session fail: ${url}`, e))
+    ));
+  }
 }
 
 export default {
