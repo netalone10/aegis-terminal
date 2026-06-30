@@ -187,13 +187,14 @@ function AssetMiniCard({ symbol, data }: {
   )
 }
 
-function SessionCard({ report, onRefresh, isRefreshing }: {
+function SessionCard({ sessionKey, report, onRefresh, isRefreshing }: {
+  sessionKey: string
   report: SessionReportData | null
   onRefresh: () => void
   isRefreshing: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const sessionDef = SESSIONS.find(s => s.key === report?.session) ?? SESSIONS[0]
+  const sessionDef = SESSIONS.find(s => s.key === sessionKey) ?? SESSIONS[0]
 
   if (!report) {
     return (
@@ -577,6 +578,7 @@ export default function SessionReport() {
           {SESSIONS.map(s => (
             <SessionCard
               key={s.key}
+              sessionKey={s.key}
               report={reports?.[s.key] ?? null}
               onRefresh={() => refreshMutation.mutate(s.key)}
               isRefreshing={refreshMutation.isPending && refreshMutation.variables === s.key}
