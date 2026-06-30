@@ -590,47 +590,42 @@ analysisRoutes.get('/ohlcv', async (c) => {
   }
 });
 
-// Narrative text builder — template-based, no AI
+// Narrative text builder — concise, data-driven format (Sphyn-style)
 function buildNarrative(smcData: any, symbol: string, timeframe: string): any {
   if (!smcData) return null;
 
   const { bias, confidence, premiumDiscount, killZone, bullScore, bearScore,
     signals, levels, tradeSetup, structure, meta } = smcData;
-  const price = meta?.ema20 ?? 0; // approximate current price
-  const close = price; // fallback
 
-  // --- Market Structure ---
+  // --- Market Structure --- concise bullets
   const emaDesc = structure.emaBias === 'bullish'
-    ? `EMA20 (${meta?.ema20?.toFixed(1)}) trades above EMA50 (${meta?.ema50?.toFixed(1)}), confirming bullish momentum.`
+    ? `EMA20 ${meta?.ema20?.toFixed(1)} > EMA50 ${meta?.ema50?.toFixed(1)} → bullish momentum`
     : structure.emaBias === 'bearish'
-      ? `EMA20 (${meta?.ema20?.toFixed(1)}) trades below EMA50 (${meta?.ema50?.toFixed(1)}), confirming bearish momentum.`
-      : `EMA20 and EMA50 are intertwined, suggesting a ranging market.`;
+      ? `EMA20 ${meta?.ema20?.toFixed(1)} < EMA50 ${meta?.ema50?.toFixed(1)} → bearish momentum`
+      : `EMA20/EMA50 intertwined → ranging`;
 
-  const longTermDesc = structure.longTermBias === 'bullish'
-    ? `Price holds above the 200 SMA, maintaining the long-term bullish structure.`
-    : `Price trades below the 200 SMA, indicating long-term bearish pressure.`;
+  const ltDesc = structure.longTermBias === 'bullish'
+    ? `Above 200 SMA (${meta?.sma200?.toFixed(1)}) → LT bullish`
+    : `Below 200 SMA (${meta?.sma200?.toFixed(1)}) → LT bearish`;
 
+  const rsiVal = meta?.rsi?.toFixed(0) ?? 'N/A';
   const rsiDesc = meta?.rsi < 30
-    ? `RSI at ${meta.rsi.toFixed(0)} signals oversold conditions — potential reversal zone.`
+    ? `RSI ${rsiVal} — oversold, reversal zone`
     : meta?.rsi > 70
-      ? `RSI at ${meta.rsi.toFixed(0)} signals overbought conditions — watch for exhaustion.`
-      : `RSI at ${meta?.rsi?.toFixed(0)} sits in neutral territory.`;
+      ? `RSI ${rsiVal} — overbought, exhaustion risk`
+      : `RSI ${rsiVal} — neutral`;
 
-  const structSummary = bias === 'bullish'
-    ? `${timeframe} structure is bullish with ${confidence}% confidence. Price is ${premiumDiscount === 'discount' ? 'in the discount zone, offering favorable long entries' : 'in the premium zone — wait for a pullback'}.`
-    : bias === 'bearish'
-      ? `${timeframe} structure is bearish with ${confidence}% confidence. Price is ${premiumDiscount === 'premium' ? 'in the premium zone, offering favorable short entries' : 'in the discount zone — wait for a rally'}.`
-      : `${timeframe} structure shows no clear directional bias. Market is consolidating — wait for a breakout.`;
+  const structSummary = `${timeframe} ${bias} ${confidence}% · ${premiumDiscount}`;
 
   const structBullets = [
     emaDesc,
-    longTermDesc,
+    ltDesc,
     rsiDesc,
-    `Premium/Discount: Price in ${premiumDiscount} zone relative to 1M range.`,
-    killZone !== 'none' ? `Active kill zone: ${killZone.replace('_', ' ').toUpperCase()}.` : 'Outside kill zone — reduced liquidity expected.',
+    `P/D: ${premiumDiscount}`,
+    killZone !== 'none' ? `Kill zone: ${killZone.replace('_', ' ').toUpperCase()}` : 'Outside kill zone',
   ];
 
-  // --- Liquidity Behaviour ---
+  // --- Levels --- concise data labels
   const obLevels = levels.filter((l: any) => l.type.includes('_ob'));
   const fvgLevels = levels.filter((l: any) => l.type.includes('_fvg'));
   const liqLevels = levels.filter((l: any) => l.type.includes('liquidity'));
@@ -639,77 +634,78 @@ function buildNarrative(smcData: any, symbol: string, timeframe: string): any {
   const bullOB = obLevels.find((l: any) => l.type === 'bullish_ob');
   const bearOB = obLevels.find((l: any) => l.type === 'bearish_ob');
 
-  const liqSummaryParts: string[] = [];
-  if (bullOB) liqSummaryParts.push(`A bullish order block sits at ${bullOB.zone[0].toFixed(2)}–${bullOB.zone[1].toFixed(2)}, suggesting institutional buying interest.`);
-  if (bearOB) liqSummaryParts.push(`A bearish order block sits at ${bearOB.zone[0].toFixed(2)}–${bearOB.zone[1].toFixed(2)}, suggesting institutional selling pressure.`);
-  if (fvgLevels.length > 0) liqSummaryParts.push(`${fvgLevels.length} fair value gap${fvgLevels.length > 1 ? 's' : ''} detected — potential magnet zones for price retracement.`);
+  // Concise summary
+  const liqParts: string[] = [];
+  if (bullOB) liqParts.push(`Bull OB: ${bullOB.zone[0].toFixed(0)}–${bullOB.zone[1].toFixed(0)}`);
+  if (bearOB) liqParts.push(`Bear OB: ${bearOB.zone[0].toFixed(0)}–${bearOB.zone[1].toFixed(0)}`);
+  if (fvgLevels.length > 0) liqParts.push(`${fvgLevels.length}FVG detected`);
+  const liqSummary = liqParts.length > 0 ? liqParts.join(' · ') : 'No key structures at current levels';
 
-  const liqSummary = liqSummaryParts.length > 0
-    ? liqSummaryParts.join(' ')
-    : 'No significant liquidity structures detected at current levels.';
-
+  // Bullets — one per level type
   const liqBullets: string[] = [];
-  if (obLevels.length > 0) {
-    liqBullets.push(`Order Blocks: ${obLevels.map((l: any) => `${l.label} @ ${l.zone[0].toFixed(2)}–${l.zone[1].toFixed(2)}`).join(', ')}`);
-  }
+  if (bullOB) liqBullets.push(`Bull OB: ${bullOB.zone[0].toFixed(0)}–${bullOB.zone[1].toFixed(0)} (${bullOB.label})`);
+  if (bearOB) liqBullets.push(`Bear OB: ${bearOB.zone[0].toFixed(0)}–${bearOB.zone[1].toFixed(0)} (${bearOB.label})`);
   if (fvgLevels.length > 0) {
-    liqBullets.push(`FVGs: ${fvgLevels.map((l: any) => `${l.label} @ ${l.zone[0].toFixed(2)}–${l.zone[1].toFixed(2)}`).join(', ')}`);
+    for (const f of fvgLevels.slice(0, 3)) liqBullets.push(`FVG: ${f.zone[0].toFixed(0)}–${f.zone[1].toFixed(0)} (${f.label})`);
   }
   if (liqLevels.length > 0) {
-    liqBullets.push(`Liquidity Pools: ${liqLevels.map((l: any) => `${l.label} @ ${l.zone[0].toFixed(2)}`).join(', ')}`);
+    for (const l of liqLevels.slice(0, 3)) liqBullets.push(`Liq: ${l.zone[0].toFixed(0)} (${l.label})`);
   }
 
+  // Important zones table
   const importantZones = [
-    ...obLevels.map((l: any) => ({ level: `${l.zone[0].toFixed(2)}–${l.zone[1].toFixed(2)}`, label: l.label })),
-    ...liqLevels.map((l: any) => ({ level: `${l.zone[0].toFixed(2)}`, label: l.label })),
+    ...obLevels.map((l: any) => ({ level: `${l.zone[0].toFixed(0)}–${l.zone[1].toFixed(0)}`, label: l.label })),
+    ...liqLevels.map((l: any) => ({ level: `${l.zone[0].toFixed(0)}`, label: l.label })),
   ].slice(0, 6);
 
-  const keyRead = [
-    bias === 'bullish'
-      ? `Bullish order block at ${bullOB?.zone?.[0]?.toFixed(2) ?? 'N/A'} is the key demand zone — a hold here validates long setups.`
-      : bias === 'bearish'
-        ? `Bearish order block at ${bearOB?.zone?.[0]?.toFixed(2) ?? 'N/A'} is the key supply zone — a rejection here validates short setups.`
-        : `No dominant order block — watch for structure break before committing.`,
-    `Fib 61.8% at ${fibLevels.find((l: any) => l.type === 'fib_618')?.zone?.[0]?.toFixed(2) ?? 'N/A'} — golden pocket for retracement entries.`,
-    `Buy-side liquidity rests at ${liqLevels.find((l: any) => l.type === 'liquidity_high')?.zone?.[0]?.toFixed(2) ?? 'N/A'} — a sweep targets this level.`,
-  ];
+  // Key reads — one-liners
+  const fib618 = fibLevels.find((l: any) => l.type === 'fib_618')?.zone?.[0];
+  const liqHigh = liqLevels.find((l: any) => l.type === 'liquidity_high')?.zone?.[0];
+  const liqLow = liqLevels.find((l: any) => l.type === 'liquidity_low')?.zone?.[0];
 
-  // --- Scenarios ---
+  const keyRead: string[] = [];
+  if (bias === 'bullish' && bullOB) keyRead.push(`Key demand: Bull OB ${bullOB.zone[0].toFixed(0)} — hold validates longs`);
+  else if (bias === 'bearish' && bearOB) keyRead.push(`Key supply: Bear OB ${bearOB.zone[0].toFixed(0)} — rejection validates shorts`);
+  else keyRead.push(`No dominant OB — watch for structure break`);
+  if (fib618) keyRead.push(`Fib 61.8%: ${fib618.toFixed(0)} — golden pocket`);
+  if (liqHigh) keyRead.push(`BSL: ${liqHigh.toFixed(0)} — sweep target`);
+  if (liqLow) keyRead.push(`SSL: ${liqLow.toFixed(0)} — breakdown target`);
+
+  // --- Scenarios --- short descriptions
   const primaryProb = bias === 'bullish' ? Math.min(75, confidence + 5) : bias === 'bearish' ? Math.min(75, confidence + 5) : 45;
   const altProb = 100 - primaryProb;
 
   const primaryDesc = bias === 'bullish'
-    ? `Price holds above the bullish OB and breaks higher, targeting the buy-side liquidity at ${liqLevels.find((l: any) => l.type === 'liquidity_high')?.zone?.[0]?.toFixed(2) ?? 'resistance'}.`
+    ? `Hold above Bull OB ${bullOB?.zone?.[0]?.toFixed(0) ?? '—'}, target BSL ${liqHigh?.toFixed(0) ?? '—'}`
     : bias === 'bearish'
-      ? `Price rejects from the bearish OB and breaks lower, targeting the sell-side liquidity at ${liqLevels.find((l: any) => l.type === 'liquidity_low')?.zone?.[0]?.toFixed(2) ?? 'support'}.`
-      : `Range-bound movement between key OB levels until a clear breakout.`;
+      ? `Reject at Bear OB ${bearOB?.zone?.[0]?.toFixed(0) ?? '—'}, target SSL ${liqLow?.toFixed(0) ?? '—'}`
+      : `Range between key OB levels until breakout`;
 
   const altDesc = bias === 'bullish'
-    ? `Price fails to hold the bullish OB, sweeps sell-side liquidity before potential reversal.`
+    ? `Fail Bull OB, sweep SSL ${liqLow?.toFixed(0) ?? '—'} before reversal`
     : bias === 'bearish'
-      ? `Price invalidates the bearish setup by breaking above the OB, triggering a short squeeze.`
-      : `Strong breakout from the range, targeting the opposite liquidity pool.`;
+      ? `Break above Bear OB ${bearOB?.zone?.[1]?.toFixed(0) ?? '—'}, short squeeze`
+      : `Strong breakout targeting opposite liquidity`;
 
   const primaryTargets = tradeSetup
     ? [`TP1: ${tradeSetup.tp1?.toFixed(2)}`, `TP2: ${tradeSetup.tp2?.toFixed(2)}`, `TP3: ${tradeSetup.tp3?.toFixed(2)}`]
-    : ['No trade setup available'];
+    : ['No trade setup'];
 
   const altTargets = tradeSetup
-    ? [`Reversal target: ${tradeSetup.sl?.toFixed(2)}`, `Extended: ${tradeSetup.entry?.toFixed(2)}`]
+    ? [`Reversal: ${tradeSetup.sl?.toFixed(2)}`, `Extended: ${tradeSetup.entry?.toFixed(2)}`]
     : ['Monitor for invalidation'];
-
-  const scenarios = {
-    primary: { probability: primaryProb, description: primaryDesc, targets: primaryTargets },
-    alternative: { probability: altProb, description: altDesc, targets: altTargets },
-  };
 
   return {
     symbol,
     timeframe,
     date: new Date().toISOString(),
+    meta: { price: meta?.close ?? meta?.ema20, atr: meta?.atr, rsi: meta?.rsi, ema20: meta?.ema20, ema50: meta?.ema50, sma200: meta?.sma200 },
     marketStructure: { summary: structSummary, bullets: structBullets },
     liquidityBehaviour: { summary: liqSummary, bullets: liqBullets, importantZones, keyRead },
-    scenarios,
+    scenarios: {
+      primary: { probability: primaryProb, description: primaryDesc, targets: primaryTargets },
+      alternative: { probability: altProb, description: altDesc, targets: altTargets },
+    },
   };
 }
 

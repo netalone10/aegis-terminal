@@ -7,6 +7,7 @@ interface NarrativeData {
   symbol: string
   timeframe: string
   date: string
+  meta?: { price?: number; atr?: number; rsi?: number; ema20?: number; ema50?: number; sma200?: number }
   marketStructure: { summary: string; bullets: string[] }
   liquidityBehaviour: {
     summary: string
@@ -17,11 +18,6 @@ interface NarrativeData {
   scenarios: {
     primary: { probability: number; description: string; targets: string[] }
     alternative: { probability: number; description: string; targets: string[] }
-  }
-  newsImpact?: {
-    bias: string
-    reasoning: string
-    upcomingEvents: { event: string; impact: string; bias: string }[]
   }
 }
 
@@ -44,7 +40,7 @@ export default function AnalysisNarrative() {
         <div>
           <div className="kt-kicker">Narrative Analysis</div>
           <h1>Market Narrative</h1>
-          <p>Structured SMC analysis with scenario mapping</p>
+          <p>SMC/ICT analysis — real-time data, concise format</p>
         </div>
       </div>
 
@@ -92,7 +88,6 @@ export default function AnalysisNarrative() {
               <div className="skeleton" style={{ height: 24, width: '60%' }} />
               <div className="skeleton" style={{ height: 16, width: '100%' }} />
               <div className="skeleton" style={{ height: 16, width: '90%' }} />
-              <div className="skeleton" style={{ height: 16, width: '80%' }} />
             </div>
           </div>
         </div>
@@ -107,34 +102,32 @@ export default function AnalysisNarrative() {
               <span className="mono" style={{ color: 'var(--kt-text)', fontWeight: 600 }}>{data.symbol}</span>
               <span className="kt-tag gold">{data.timeframe}</span>
               <span className={`badge-${biasLabel === 'bullish' ? 'bull' : biasLabel === 'bearish' ? 'bear' : 'neutral'}`}>
-                {biasLabel.toUpperCase()}
+                {data.marketStructure.summary}
               </span>
             </div>
             <span style={{ color: 'var(--kt-dim)', fontSize: 'var(--xs)', fontFamily: 'var(--font-mono)' }}>
               {new Date(data.date).toLocaleString('en-GB', { timeZone: 'UTC' })} UTC
             </span>
           </div>
-          <div className="kt-panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            {/* Section 1: Market Structure */}
+          <div className="kt-panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* 1. Structure — compact bullets */}
             <section>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{
-                  width: 22, height: 22, borderRadius: 999,
+                  width: 20, height: 20, borderRadius: 999,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   background: 'var(--kt-goldf)', color: 'var(--kt-gold)',
                   fontSize: 'var(--xs)', fontWeight: 800,
                 }}>1</span>
-                <h3 style={{ fontSize: 'var(--lg)', fontWeight: 700, color: 'var(--kt-text)', letterSpacing: '-0.3px' }}>
-                  Market Structure
+                <h3 style={{ fontSize: 'var(--md)', fontWeight: 700, color: 'var(--kt-text)', letterSpacing: '-0.2px' }}>
+                  Structure
                 </h3>
               </div>
-              <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--md)', lineHeight: 1.7, marginBottom: 10 }}>
-                {data.marketStructure.summary}
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {data.marketStructure.bullets.map((b, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, fontSize: 'var(--sm)', color: 'var(--kt-muted)' }}>
-                    <span style={{ color: 'var(--kt-gold)', flexShrink: 0 }}>→</span>
+                  <div key={i} style={{ display: 'flex', gap: 8, fontSize: 'var(--sm)', color: 'var(--kt-text2)', fontFamily: 'var(--font-mono)' }}>
+                    <span style={{ color: 'var(--kt-gold)', flexShrink: 0, fontSize: 'var(--xs)' }}>▸</span>
                     <span>{b}</span>
                   </div>
                 ))}
@@ -143,50 +136,49 @@ export default function AnalysisNarrative() {
 
             <div style={{ height: 1, background: 'var(--kt-border)' }} />
 
-            {/* Section 2: Liquidity Behaviour */}
+            {/* 2. Levels — data table */}
             <section>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{
-                  width: 22, height: 22, borderRadius: 999,
+                  width: 20, height: 20, borderRadius: 999,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   background: 'var(--kt-bluef)', color: 'var(--kt-blue)',
                   fontSize: 'var(--xs)', fontWeight: 800,
                 }}>2</span>
-                <h3 style={{ fontSize: 'var(--lg)', fontWeight: 700, color: 'var(--kt-text)', letterSpacing: '-0.3px' }}>
-                  Liquidity Behaviour
+                <h3 style={{ fontSize: 'var(--md)', fontWeight: 700, color: 'var(--kt-text)' }}>
+                  Levels
                 </h3>
+                <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', marginLeft: 4 }}>
+                  {data.liquidityBehaviour.summary}
+                </span>
               </div>
-              <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--md)', lineHeight: 1.7, marginBottom: 10 }}>
-                {data.liquidityBehaviour.summary}
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+
+              {/* Level bullets */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 12 }}>
                 {data.liquidityBehaviour.bullets.map((b, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, fontSize: 'var(--sm)', color: 'var(--kt-muted)' }}>
-                    <span style={{ color: 'var(--kt-blue)', flexShrink: 0 }}>→</span>
+                  <div key={i} style={{ display: 'flex', gap: 8, fontSize: 'var(--sm)', color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                    <span style={{ color: 'var(--kt-blue)', flexShrink: 0, fontSize: 'var(--xs)' }}>▸</span>
                     <span>{b}</span>
                   </div>
                 ))}
               </div>
 
-              {/* Important Zones */}
+              {/* Important Zones — compact grid */}
               {data.liquidityBehaviour.importantZones.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
-                    Important Zones
-                  </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {data.liquidityBehaviour.importantZones.map((z, i) => (
                       <div key={i} className="kt-level-row" style={{ marginBottom: 0 }}>
                         <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)' }}>{z.label}</span>
-                        <span className="mono" style={{ fontSize: 'var(--xs)', fontWeight: 600, color: 'var(--kt-text)' }}>{z.level}</span>
+                        <span className="mono" style={{ fontSize: 'var(--xs)', fontWeight: 700, color: 'var(--kt-gold)' }}>{z.level}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Key Read */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* Key Reads — one-liners */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {data.liquidityBehaviour.keyRead.map((k, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, fontSize: 'var(--sm)', color: 'var(--kt-text2)' }}>
                     <span style={{ color: 'var(--kt-up)', flexShrink: 0 }}>▸</span>
@@ -198,16 +190,16 @@ export default function AnalysisNarrative() {
 
             <div style={{ height: 1, background: 'var(--kt-border)' }} />
 
-            {/* Section 3: Scenarios */}
+            {/* 3. Scenarios — compact */}
             <section>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{
-                  width: 22, height: 22, borderRadius: 999,
+                  width: 20, height: 20, borderRadius: 999,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   background: 'var(--kt-upf)', color: 'var(--kt-up)',
                   fontSize: 'var(--xs)', fontWeight: 800,
                 }}>3</span>
-                <h3 style={{ fontSize: 'var(--lg)', fontWeight: 700, color: 'var(--kt-text)', letterSpacing: '-0.3px' }}>
+                <h3 style={{ fontSize: 'var(--md)', fontWeight: 700, color: 'var(--kt-text)' }}>
                   Scenarios
                 </h3>
               </div>
@@ -216,7 +208,7 @@ export default function AnalysisNarrative() {
                 {/* Primary */}
                 <div className="kt-card" style={{ borderColor: 'rgba(70,201,127,0.2)' }}>
                   <div className="kt-card-pad">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span className="badge-bull" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <TrendingUp size={10} /> Primary
                       </span>
@@ -224,7 +216,7 @@ export default function AnalysisNarrative() {
                         {data.scenarios.primary.probability}%
                       </span>
                     </div>
-                    <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--sm)', lineHeight: 1.6, marginBottom: 8 }}>
+                    <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--sm)', lineHeight: 1.5, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
                       {data.scenarios.primary.description}
                     </p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -238,7 +230,7 @@ export default function AnalysisNarrative() {
                 {/* Alternative */}
                 <div className="kt-card" style={{ borderColor: 'rgba(255,77,79,0.15)' }}>
                   <div className="kt-card-pad">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span className="badge-bear" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <TrendingDown size={10} /> Alternative
                       </span>
@@ -246,7 +238,7 @@ export default function AnalysisNarrative() {
                         {data.scenarios.alternative.probability}%
                       </span>
                     </div>
-                    <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--sm)', lineHeight: 1.6, marginBottom: 8 }}>
+                    <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--sm)', lineHeight: 1.5, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
                       {data.scenarios.alternative.description}
                     </p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -267,7 +259,7 @@ export default function AnalysisNarrative() {
         <div className="kt-panel">
           <div className="kt-empty">
             <Layers size={32} />
-            <p>No narrative data available for {symbol}.</p>
+            <p>No narrative data for {symbol} ({tf}).</p>
           </div>
         </div>
       )}
