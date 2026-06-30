@@ -362,7 +362,7 @@ export default function StructureMap() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
           <Crosshair size={12} />
-          <span>Market Peta Struktur — 1D timeframe</span>
+          <span>Market Structure Map — 1D timeframe</span>
         </div>
       </div>
 

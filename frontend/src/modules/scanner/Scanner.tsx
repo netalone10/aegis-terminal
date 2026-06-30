@@ -60,7 +60,7 @@ export default function Scanner() {
         <div>
           <div className="kt-kicker">Stock Scanner</div>
           <h1>Scanner</h1>
-          <p>Filter setups, watchlist, dan kandidat trade sesuai rule engine</p>
+          <p>Filter setups, watchlist, and trade candidates by rule engine</p>
         </div>
         <span className="kt-pill">{filteredStocks.length} stocks</span>
       </div>

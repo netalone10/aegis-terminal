@@ -127,7 +127,7 @@ export default function RiskCalc() {
             {/* Account & Risk */}
             <div className="kt-grid-2" style={{ marginBottom: 12 }}>
               <div>
-                <label style={labelStyle}>Saldo Akun (USD)</label>
+                <label style={labelStyle}>Account Balance (USD)</label>
                 <input type="number" style={inputStyle} value={balance}
                   onChange={e => setBalance(Number(e.target.value) || 0)} />
               </div>
@@ -150,7 +150,7 @@ export default function RiskCalc() {
             {/* Entry / SL / TPs */}
             <div className="kt-grid-2" style={{ marginBottom: 12 }}>
               <div>
-                <label style={labelStyle}>Harga Entry</label>
+                <label style={labelStyle}>Entry Price</label>
                 <input type="number" style={inputStyle} value={entry} step="any"
                   onChange={e => setEntry(e.target.value === '' ? '' : Number(e.target.value))} />
               </div>
@@ -175,7 +175,7 @@ export default function RiskCalc() {
 
             {/* Lot Presets */}
             <div>
-              <label style={labelStyle}>Preset Posisi</label>
+              <label style={labelStyle}>Position Preset</label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {LOT_PRESETS.map(l => (
                   <button key={l} onClick={() => setPresetLots(presetLots === l ? null : l)}
@@ -220,7 +220,7 @@ export default function RiskCalc() {
                 <div className="kt-stat-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
                   <Stat label="Risk Amount" value={`$${calc.riskDollar.toFixed(2)}`} color="var(--kt-dn)" />
                   <Stat label="SL Pips" value={calc.slPips.toFixed(1)} color="var(--kt-dn)" />
-                  <Stat label="Ukuran Posisi" value={`${calc.lots.toFixed(4)} lots`} color="var(--kt-gold)" />
+                  <Stat label="Position Size" value={`${calc.lots.toFixed(4)} lots`} color="var(--kt-gold)" />
                   <Stat label="R:R TP1" value={calc.rr1 > 0 ? `1 : ${calc.rr1.toFixed(2)}` : '—'} color="var(--kt-up)" />
                   <Stat label="R:R TP2" value={calc.rr2 > 0 ? `1 : ${calc.rr2.toFixed(2)}` : '—'} color="var(--kt-up)" />
                   <Stat label="Risk %" value={`${riskPct}%`} color="var(--kt-dn)" />

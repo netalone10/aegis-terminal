@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 const SESSIONS = [
   {
     id: 'asian',
-    name: 'Sesi Asia',
+    name: 'Asian Session',
     start: 7,   // 07:00 WIB
     end: 11,    // 11:00 WIB
     pairs: ['USD/JPY', 'AUD/USD', 'NZD/USD'],
@@ -15,20 +15,20 @@ const SESSIONS = [
   },
   {
     id: 'london',
-    name: 'Sesi London',
+    name: 'London Session',
     start: 13,  // 13:00 WIB
     end: 17,    // 17:00 WIB
     pairs: ['EUR/USD', 'GBP/USD', 'EUR/GBP'],
-    character: 'Manipulasi',
+    character: 'Manipulation',
     color: '#a78bfa', // violet
     icon: '🇬🇧',
   },
   {
     id: 'overlap',
-    name: 'Overlap London-NY',
+    name: 'London-NY Overlap',
     start: 20,  // 20:00 WIB
     end: 23,    // 23:00 WIB
-    pairs: ['Semua Pair Mayor'],
+    pairs: ['All Major Pairs'],
     character: 'Trending',
     color: '#4ade80', // green
     icon: '🔥',
@@ -36,7 +36,7 @@ const SESSIONS = [
   },
   {
     id: 'ny',
-    name: 'Penutupan NY',
+    name: 'NY Close',
     start: 0,   // 00:00 WIB
     end: 3,     // 03:00 WIB
     pairs: ['EUR/USD', 'GBP/USD', 'USD/CAD'],

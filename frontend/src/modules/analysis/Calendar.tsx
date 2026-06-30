@@ -441,7 +441,7 @@ export default function Calendar() {
         <div className="kt-panel-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ color: 'var(--kt-text)', fontWeight: 600, fontSize: 'var(--md, 14px)' }}>
-              Kalender Ekonomi
+              Economic Calendar
             </span>
             <span style={{ color: 'var(--kt-muted)', fontSize: 'var(--xs, 11px)' }}>
               All times WIB (UTC+7)

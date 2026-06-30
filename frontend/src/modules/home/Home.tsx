@@ -10,7 +10,7 @@ const modules = [
   { code: 'MAC', title: 'Macro Regime', desc: 'Rates, inflation, growth, policy, dan risk regime untuk top-down context.', to: '/macro' },
   { code: 'CHT', title: 'Chart Lab', desc: 'Charting workspace untuk validasi struktur, level, dan execution zone.', to: '/chart' },
   { code: 'SCN', title: 'Scanner', desc: 'Filter setup, watchlist, dan kandidat trade sesuai rule engine.', to: '/scanner' },
-  { code: 'JRN', title: 'Journal', desc: 'Catat eksekusi, invalidation, result, dan lesson dari tiap trade.', to: '/journal' },
+  { code: 'JRN', title: 'Journal', desc: 'Log execution, invalidation, result, and lesson from each trade.', to: '/journal' },
   { code: 'AI', title: 'AI Assistant', desc: 'Ringkas context pasar, tanya setup, dan buat decision checklist.', to: '/ai' },
   { code: 'RTE', title: 'Rates & Bonds', desc: 'US yields, curve, Fed context, dan pressure ke gold / USD.', to: '/rates' },
 ]
@@ -56,14 +56,14 @@ export default function Home() {
         <div className="kt-hero-copy">
           <div className="kt-eyebrow"><b>V3.0</b> Telah Hadir</div>
           <h1 className="kt-hero-title">
-            Satu terminal untuk membaca <span>macro, flow, SMC, dan eksekusi.</span>
+            One terminal to read <span>macro, flow, SMC, and execution.</span>
           </h1>
           <p className="kt-hero-sub">
             Aegis Terminal menggabungkan live market data, SMC/ICT analysis, macro regime, dan workflow trading dalam satu workspace ringan untuk forex dan XAU/USD.
           </p>
           <div className="kt-hero-actions">
-            <NavLink className="kt-btn kt-btn-primary" to="/decision">Buka Mesin SMC</NavLink>
-            <NavLink className="kt-btn" to="/market">Lihat Market</NavLink>
+            <NavLink className="kt-btn kt-btn-primary" to="/decision">Open SMC Engine</NavLink>
+            <NavLink className="kt-btn" to="/market">View Market</NavLink>
             <NavLink className="kt-btn" to="/macro">Macro Regime</NavLink>
           </div>
 
@@ -102,7 +102,7 @@ export default function Home() {
       <section className="kt-section">
         <div className="kt-section-head">
           <div>
-            <h2>Fitur lengkap, tetap clean.</h2>
+            <h2>Full-featured, still clean.</h2>
             <p>Delapan area inti untuk riset top-down sampai eksekusi.</p>
           </div>
           <span className="kt-pill">8 Core Areas</span>
@@ -121,8 +121,8 @@ export default function Home() {
       <section className="kt-section">
         <div className="kt-section-head">
           <div>
-            <h2>Riset Harian.</h2>
-            <p>Bias utama dan headline context sesi berjalan.</p>
+            <h2>Daily Research.</h2>
+            <p>Primary bias and headline context for active session.</p>
           </div>
           <span className="kt-pill">Auto Refresh</span>
         </div>

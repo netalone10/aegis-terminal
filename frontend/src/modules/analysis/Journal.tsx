@@ -35,7 +35,7 @@ export default function Journal() {
         <div>
           <div className="kt-kicker">Trading Journal</div>
           <h1>Journal</h1>
-          <p>Catat eksekusi, invalidation, result, dan lesson dari tiap trade</p>
+          <p>Log execution, invalidation, result, and lesson from each trade</p>
         </div>
         <button className="kt-btn kt-btn-primary">
           <Plus size={13} style={{ marginRight: 6 }} /> New Entry

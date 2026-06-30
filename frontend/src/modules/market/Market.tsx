@@ -30,7 +30,7 @@ export default function Market() {
       <div className="kt-route-head">
         <div>
           <div className="kt-kicker">Market Live</div>
-          <h1>Ringkasan Market</h1>
+          <h1>Market Overview</h1>
           <p>Major forex pairs with live pricing</p>
         </div>
         <div className="kt-route-actions">

@@ -92,7 +92,7 @@ export default function Sentiment() {
           <div className="kt-kicker">POSITION DATA</div>
           <h1>Market Sentiment</h1>
           <p style={{ color: 'var(--kt-text2)', fontSize: 'var(--sm)' }}>
-            Laporan COT + posisi retail — temukan peluang contrarian
+            COT report + retail positioning — find contrarian opportunities
           </p>
         </div>
         <div className="kt-route-actions">
@@ -107,7 +107,7 @@ export default function Sentiment() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <BarChart3 size={16} style={{ color: 'var(--kt-gold)' }} />
             <span style={{ color: 'var(--kt-text)', fontSize: 'var(--md)', fontWeight: 600 }}>
-              COT — Posisi Institusional
+              COT — Institutional Positioning
             </span>
           </div>
           {cot?.[0]?.reportDate && (

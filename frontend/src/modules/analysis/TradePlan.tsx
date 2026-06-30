@@ -201,7 +201,7 @@ export default function TradePlan() {
                 {dateStr}
               </p>
               <h2 style={{ fontSize: 'var(--md, 16px)', fontWeight: 700, color: 'var(--kt-text)', margin: 0 }}>
-                Rencana Trading Harian
+                Daily Trade Plan
               </h2>
             </div>
           </div>
@@ -475,7 +475,7 @@ export default function TradePlan() {
         <div className="kt-panel-head">
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
             <Target size={14} style={{ color: 'var(--kt-gold, #f59e0b)' }} />
-            Checklist Pra-Trade
+            Pre-Trade Checklist
           </span>
           <span style={{ fontSize: 'var(--xs)', color: checkedCount === plan.checklist.length ? 'var(--kt-up)' : 'var(--kt-muted)' }}>
             {checkedCount}/{plan.checklist.length}

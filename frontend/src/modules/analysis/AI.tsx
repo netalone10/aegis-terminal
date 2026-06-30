@@ -16,7 +16,8 @@ const QUICK_ACTIONS = [
   "What's the bias?",
 ]
 
-const API_URL = 'https://aegis-terminal-api.akbar-rm10.workers.dev/api/ai/chat'
+const API_BASE = 'https://aegis-terminal-api.akbar-rm10.workers.dev'
+const API_URL = `${API_BASE}/api/ai/chat`
 
 /** Minimal markdown → HTML: bold, bullets, line breaks */
 function renderMarkdown(text: string) {

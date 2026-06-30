@@ -29,7 +29,6 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.use('/*', cors());
 
 app.route('/api/market', marketRoutes);
-app.route('/api/idx', idxRoutes);
 app.route('/api/analysis', analysisRoutes);
 app.route('/api/portfolio', portfolioRoutes);
 app.route('/api/ai', aiRoutes);

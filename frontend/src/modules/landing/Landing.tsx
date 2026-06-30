@@ -2,20 +2,20 @@ import { NavLink } from 'react-router-dom'
 import { Zap, Shield, ChevronRight } from 'lucide-react'
 
 const features = [
-  { code: 'SMC', title: 'Mesin SMC / ICT', desc: 'Order block, FVG, liquidity sweep, dan market structure dipetakan real-time. Konsep smart money institusional diautopilot.' },
-  { code: 'MKT', title: 'Data Market Live', desc: 'Feed harga real-time, profil volume, dan analisis multi-timeframe untuk kripto, forex, dan saham.' },
-  { code: 'MAC', title: 'Analisis Regime Makro', desc: 'Pantau DXY, yield, regime risk-on/off, dan pergeseran makro yang menggerakkan harga. Kenali lingkungan sebelum trading.' },
-  { code: 'AI', title: 'Analisis Berbasis AI', desc: 'Ide trade dari AI, debat multi-agent, dan sintesis sentimen. AI menemukan setup, lo fokus eksekusi.' },
-  { code: 'SCN', title: 'Scanner Saham IDX', desc: 'Skor setiap saham dari teknikal, momentum, dan volume. Filter berdasarkan indeks, sektor, atau kriteria kustom.' },
-  { code: 'PRT', title: 'Pelacakan Portofolio', desc: 'Pantau posisi, P&L, dan alokasi real-time. Tahu persis posisi lo tanpa keluar terminal.' },
-  { code: 'CHT', title: 'Lab Chart', desc: 'Charting canggih dengan Bollinger squeeze, Fibonacci grid, overlay multi-timeframe, dan konfirmasi volume.' },
-  { code: 'JRN', title: 'Jurnal Trading', desc: 'Catat entri, tag setup, lacak win rate per strategi. Review dan asah edge dengan dokumentasi terstruktur.' },
+  { code: 'SMC', title: 'Mesin SMC / ICT', desc: 'Order blocks, FVG, liquidity sweeps, and market structure mapped in real-time. Institutional smart money concepts on autopilot.' },
+  { code: 'MKT', title: 'Data Market Live', desc: 'Real-time price feeds, volume profiles, and multi-timeframe analysis for crypto, forex, and stocks.' },
+  { code: 'MAC', title: 'Analisis Regime Makro', desc: 'Monitor DXY, yields, risk-on/off regimes, and macro shifts that move prices. Know the environment before you trade.' },
+  { code: 'AI', title: 'Analisis Berbasis AI', desc: 'AI trade ideas, multi-agent debate, and sentiment synthesis. AI finds setups, you focus on execution.' },
+  { code: 'SCN', title: 'Scanner Saham IDX', desc: 'Score every stock by technicals, momentum, and volume. Filter by index, sector, or custom criteria.' },
+  { code: 'PRT', title: 'Pelacakan Portofolio', desc: 'Track positions, P&L, and allocation in real-time. Know exactly where you stand without leaving the terminal.' },
+  { code: 'CHT', title: 'Lab Chart', desc: 'Advanced charting with Bollinger squeeze, Fibonacci grid, multi-timeframe overlays, and volume confirmation.' },
+  { code: 'JRN', title: 'Jurnal Trading', desc: 'Log entries, tag setups, track win rate per strategy. Review and sharpen your edge with structured documentation.' },
 ]
 
 const steps = [
-  { num: '01', title: 'Hubungkan & Scan', desc: 'Jalankan terminal. Scanner menemukan setup probabilitas tinggi di berbagai market — zona SMC, volume breakout, pergeseran makro.' },
-  { num: '02', title: 'Analisis & Validasi', desc: 'Deep-dive dengan analisis AI, alignment multi-timeframe, dan data aliran institusional. Setiap sinyal dikonfirmasi multi-layer.' },
-  { num: '03', title: 'Eksekusi & Jurnal', desc: 'Ambil trade dengan keyakinan. Catat di jurnal. Review performa. Kumulasi edge dari waktu ke waktu.' },
+  { num: '01', title: 'Hubungkan & Scan', desc: 'Launch the terminal. Scanner finds high-probability setups across markets — SMC zones, volume breakouts, macro shifts.' },
+  { num: '02', title: 'Analisis & Validasi', desc: 'Deep-dive with AI analysis, multi-timeframe alignment, and institutional flow data. Every signal confirmed multi-layer.' },
+  { num: '03', title: 'Eksekusi & Jurnal', desc: 'Take trades with confidence. Log in journal. Review performance. Accumulate edge over time.' },
 ]
 
 export default function Landing() {
@@ -26,10 +26,10 @@ export default function Landing() {
         <div className="kt-hero-copy">
           <div className="kt-eyebrow"><Zap size={12} /> <b>Kelas Institusional</b> Trading Terminal</div>
           <h1 className="kt-hero-title">
-            Trade Lebih Cerdas. <span>Lihat Semuanya.</span>
+            Trade Smarter. <span>See Everything.</span>
           </h1>
           <p className="kt-hero-sub">
-            Aegis Terminal menyatukan analisis SMC/ICT, pelacakan regime makro, insight berbasis AI, dan manajemen portofolio dalam satu cockpit trading profesional.
+            Aegis Terminal unifies SMC/ICT analysis, macro regime tracking, AI-powered insights, and portfolio management in one professional trading cockpit.
           </p>
           <div className="kt-hero-actions">
             <NavLink className="kt-btn kt-btn-primary" to="/">Buka Terminal</NavLink>
@@ -79,8 +79,8 @@ export default function Landing() {
       <section className="kt-section" id="features">
         <div className="kt-section-head">
           <div>
-            <h2>Semua yang trader butuhkan.</h2>
-            <p>Delapan modul terintegrasi. Satu terminal. Tanpa kompromi.</p>
+            <h2>Everything a trader needs.</h2>
+            <p>Eight integrated modules. One terminal. No compromises.</p>
           </div>
           <span className="kt-pill">8 Area Utama</span>
         </div>
@@ -99,8 +99,8 @@ export default function Landing() {
       <section className="kt-section">
         <div className="kt-section-head">
           <div>
-            <h2>Tiga langkah menuju trade yang lebih baik.</h2>
-            <p>Dari penemuan sinyal hingga eksekusi — tersederhanakan.</p>
+            <h2>Three steps to better trades.</h2>
+            <p>From signal discovery to execution — streamlined.</p>
           </div>
           <span className="kt-pill">Workflow</span>
         </div>
@@ -123,13 +123,13 @@ export default function Landing() {
         <div className="kt-section-head">
           <div>
             <h2>Tanpa noise. Tanpa basa-basi. Hanya sinyal.</h2>
-            <p>Dibangun atas satu prinsip: setiap data harus membantu lo membuat keputusan yang lebih baik.</p>
+            <p>Built on one principle: every data point should help you make better decisions.</p>
           </div>
           <span className="kt-pill"><Shield size={12} /> FILOSOFI</span>
         </div>
         <div className="kt-card kt-card-pad">
           <p style={{ color: 'var(--kt-text2)', fontSize: 15, lineHeight: 1.75, marginBottom: 20 }}>
-            Aegis Terminal memadukan kerangka kerja institusional (SMC, ICT, Wyckoff) dengan AI modern untuk menembus noise market dan menampilkan yang penting. Tanpa hype, tanpa spam alert — hanya analisis terstruktur untuk trader serius.
+            Aegis Terminal blends institutional frameworks (SMC, ICT, Wyckoff) with modern AI to cut through market noise and surface what matters. No hype, no spam alerts — just structured analysis for serious traders.
           </p>
           <div className="kt-stat-grid kt-stat-grid-4">
             <div className="kt-stat">
@@ -156,10 +156,10 @@ export default function Landing() {
       <section className="kt-section" style={{ marginBottom: 40 }}>
         <div className="kt-card kt-card-pad" style={{ textAlign: 'center', padding: '48px 24px' }}>
           <h2 style={{ color: 'var(--kt-text)', fontSize: 26, letterSpacing: -1, fontWeight: 700 }}>
-            Siap upgrade trading lo?
+            Ready to upgrade your trading?
           </h2>
           <p style={{ color: 'var(--kt-muted)', marginTop: 10, fontSize: 14, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto' }}>
-            Buka Aegis Terminal dan mulai melihat market seperti cara institusi melihatnya.
+            Open Aegis Terminal and start seeing the market the way institutions do.
           </p>
           <div className="kt-hero-actions" style={{ justifyContent: 'center', marginTop: 28 }}>
             <NavLink className="kt-btn kt-btn-primary" to="/">Mulai Sekarang</NavLink>
