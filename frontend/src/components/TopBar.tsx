@@ -32,7 +32,7 @@ function groupNavItems(items: NavItem[]): NavGroup[] {
     {
       label: 'TOOLS',
       items: items.filter(i =>
-        ['/structure', '/correlation', '/chart', '/scanner', '/backtest', '/journal'].includes(i.to)
+        ['/structure', '/correlation', '/chart', '/narrative', '/scanner', '/backtest', '/journal'].includes(i.to)
       ),
     },
     {
