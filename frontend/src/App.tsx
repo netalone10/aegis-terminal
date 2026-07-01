@@ -33,6 +33,7 @@ import Correlation from './modules/analysis/Correlation'
 import TradePlan from './modules/analysis/TradePlan'
 import AnalysisNarrative from './modules/analysis/AnalysisNarrative'
 import CentralBank from './modules/analysis/CentralBank'
+import MT5Live from './modules/analysis/MT5Live'
 import Regime from './modules/analysis/Regime'
 import WeeklyOutlook from './modules/analysis/WeeklyOutlook'
 import ReportArchive from './modules/analysis/ReportArchive'
@@ -67,6 +68,7 @@ const navItems = [
   { to: '/structure', label: 'Structure', icon: Map },
   { to: '/sentiment', label: 'Sentiment', icon: Activity },
   { to: '/trades', label: 'Trade', icon: Activity },
+  { to: '/mt5', label: 'MT5 Live', icon: Activity },
   { to: '/ai', label: 'AI', icon: Bot },
   { to: '/rates', label: 'Rates', icon: DollarSign },
   { to: '/calendar', label: 'Calendar', icon: CalendarIcon },
@@ -105,6 +107,7 @@ function AppShell() {
             <Route path="/structure" element={<StructureMap />} />
             <Route path="/sentiment" element={<Sentiment />} />
             <Route path="/trades" element={<TradeManager />} />
+            <Route path="/mt5" element={<MT5Live />} />
             <Route path="/ai" element={<AI />} />
             <Route path="/rates" element={<Rates />} />
             <Route path="/calendar" element={<Calendar />} />

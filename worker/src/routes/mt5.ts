@@ -24,7 +24,7 @@ mt5Routes.get('/candles', async (c) => {
     const data = await cache.getOrSet(
       `mt5:candles:${symbol}:${timeframe}:${count}`,
       () => mt5Fetch(c.env, `/candles?symbol=${symbol}&timeframe=${timeframe}&count=${count}`),
-      { ttl: 30 }
+      { ttl: 60 }
     );
     return c.json({ status: 'ok', data });
   } catch (e: any) {
@@ -41,7 +41,7 @@ mt5Routes.get('/price', async (c) => {
     const data = await cache.getOrSet(
       `mt5:price:${symbol}`,
       () => mt5Fetch(c.env, `/price?symbol=${symbol}`),
-      { ttl: 5 }
+      { ttl: 60 }
     );
     return c.json({ status: 'ok', data });
   } catch (e: any) {
@@ -59,7 +59,7 @@ mt5Routes.get('/indicators', async (c) => {
     const data = await cache.getOrSet(
       `mt5:indicators:${symbol}:${timeframe}`,
       () => mt5Fetch(c.env, `/indicators?symbol=${symbol}&timeframe=${timeframe}`),
-      { ttl: 30 }
+      { ttl: 60 }
     );
     return c.json({ status: 'ok', data });
   } catch (e: any) {

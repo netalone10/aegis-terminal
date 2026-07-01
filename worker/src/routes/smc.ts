@@ -30,48 +30,57 @@ const YAHOO_TF: Record<string, string> = {
 async function fetchOHLCV(symbol: string, tf: string, limit: number = 50): Promise<any[]> {
   const yahooSym = YAHOO_MAP[symbol.toUpperCase().replace('/', '')] ?? `${symbol.toUpperCase()}=X`;
   const interval = YAHOO_TF[tf] ?? '1d';
-  // 4H: fetch 1h and aggregate
   const needAggregate4h = tf === '4H';
   const actualInterval = needAggregate4h ? '1h' : interval;
   const range = actualInterval === '1m' ? '1d' : actualInterval === '5m' ? '5d' : actualInterval === '15m' ? '1mo' : actualInterval === '1h' ? '3mo' : '6mo';
 
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSym}?interval=${actualInterval}&range=${range}`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  if (!res.ok) return [];
-  const json: any = await res.json();
-  const result = json?.chart?.result?.[0];
-  if (!result) return [];
 
-  const ts: number[] = result.timestamp ?? [];
-  const q = result.indicators?.quote?.[0] ?? {};
-  const candles: any[] = [];
-  for (let i = 0; i < ts.length; i++) {
-    if (q.open?.[i] == null || q.close?.[i] == null) continue;
-    candles.push({
-      time: ts[i],
-      open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i],
-      volume: q.volume?.[i] ?? 0,
-    });
-  }
+  // Retry with backoff (Yahoo rate limits aggressively)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt));
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
+      if (res.status === 429) continue; // rate limited, retry
+      if (!res.ok) return [];
+      const json: any = await res.json();
+      const result = json?.chart?.result?.[0];
+      if (!result) return [];
 
-  // Aggregate 1h → 4h
-  if (needAggregate4h) {
-    const agg: any[] = [];
-    for (let i = 0; i < candles.length; i += 4) {
-      const chunk = candles.slice(i, i + 4);
-      if (chunk.length === 0) continue;
-      agg.push({
-        time: chunk[0].time,
-        open: chunk[0].open,
-        high: Math.max(...chunk.map(c => c.high)),
-        low: Math.min(...chunk.map(c => c.low)),
-        close: chunk[chunk.length - 1].close,
-        volume: chunk.reduce((s, c) => s + c.volume, 0),
-      });
+      const ts: number[] = result.timestamp ?? [];
+      const q = result.indicators?.quote?.[0] ?? {};
+      const candles: any[] = [];
+      for (let i = 0; i < ts.length; i++) {
+        if (q.open?.[i] == null || q.close?.[i] == null) continue;
+        candles.push({
+          time: ts[i],
+          open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i],
+          volume: q.volume?.[i] ?? 0,
+        });
+      }
+
+      if (needAggregate4h) {
+        const agg: any[] = [];
+        for (let i = 0; i < candles.length; i += 4) {
+          const chunk = candles.slice(i, i + 4);
+          if (chunk.length === 0) continue;
+          agg.push({
+            time: chunk[0].time,
+            open: chunk[0].open,
+            high: Math.max(...chunk.map(c => c.high)),
+            low: Math.min(...chunk.map(c => c.low)),
+            close: chunk[chunk.length - 1].close,
+            volume: chunk.reduce((s, c) => s + c.volume, 0),
+          });
+        }
+        return agg.slice(-limit);
+      }
+      return candles.slice(-limit);
+    } catch {
+      continue;
     }
-    return agg.slice(-limit);
   }
-  return candles.slice(-limit);
+  return []; // all retries failed, fallback to scanner levels
 }
 
 // ── Derive SMC levels from actual candle swing structure ──────────
