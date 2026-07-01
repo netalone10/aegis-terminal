@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { Cache } from '../cache';
 import type { Bindings } from '../index';
+import { getCandles, type Candle } from '../lib/candles';
 
 export const analysisRoutes = new Hono<{ Bindings: Bindings }>();
 
@@ -524,15 +525,14 @@ analysisRoutes.get('/ohlcv', async (c) => {
   const cache = new Cache(c.env.AEGIS_CACHE, 120);
 
   try {
-    const yahooSymbol = toYahooSymbol(symbol);
-    const yahooInterval = YAHOO_INTERVALS[interval] ?? '1d';
-    const range = yahooRange(interval, limit);
+    const yahooFallback = async (): Promise<Candle[]> => {
+      const yahooSymbol = toYahooSymbol(symbol);
+      const yahooInterval = YAHOO_INTERVALS[interval] ?? '1d';
+      const range = yahooRange(interval, limit);
 
-    const key = `ohlcv:${symbol}:${interval}:${limit}`;
-    const data = await cache.getOrSet(key, async () => {
       const chart = await fetchChart(yahooSymbol, yahooInterval, range);
       const result = chart.chart?.result?.[0];
-      if (!result) return null;
+      if (!result) return [];
 
       const timestamps: number[] = result.timestamp ?? [];
       const q = result.indicators?.quote?.[0] ?? {};
@@ -544,7 +544,7 @@ analysisRoutes.get('/ohlcv', async (c) => {
 
       // For 4h, aggregate 1h candles into 4h
       if (interval === '4h') {
-        const aggregated: any[] = [];
+        const aggregated: Candle[] = [];
         for (let i = 0; i < timestamps.length; i += 4) {
           const chunk = { start: i, end: Math.min(i + 4, timestamps.length) };
           const chunkOpens = opens.slice(chunk.start, chunk.end).filter(v => v != null) as number[];
@@ -568,23 +568,28 @@ analysisRoutes.get('/ohlcv', async (c) => {
       }
 
       // Standard mapping
-      const candles: any[] = [];
+      const candles: Candle[] = [];
       for (let i = 0; i < timestamps.length; i++) {
         if (opens[i] == null || closes[i] == null) continue;
         candles.push({
           time: timestamps[i],
-          open: opens[i],
-          high: highs[i] ?? opens[i],
-          low: lows[i] ?? opens[i],
-          close: closes[i],
+          open: opens[i]!,
+          high: highs[i] ?? opens[i]!,
+          low: lows[i] ?? opens[i]!,
+          close: closes[i]!,
           volume: volumes[i] ?? 0,
         });
       }
       return candles.slice(-limit);
+    };
+
+    const key = `ohlcv:${symbol}:${interval}:${limit}`;
+    const { candles, source } = await cache.getOrSet(key, async () => {
+      return getCandles(c.env, symbol, interval, limit, cache, yahooFallback);
     }, { ttl: 120 });
 
-    if (!data) return c.json({ error: 'No data available' }, 404);
-    return c.json({ status: 'ok', data });
+    if (!candles || candles.length === 0) return c.json({ error: 'No data available' }, 404);
+    return c.json({ status: 'ok', data: candles, source });
   } catch (e: any) {
     return c.json({ error: e.message }, 502);
   }
@@ -724,7 +729,7 @@ analysisRoutes.get('/narrative', async (c) => {
       const market = (symbol === 'XAUUSD' || symbol === 'XAU') ? 'cfd' : 'forex';
 
       const { getMultiTFData, analyzeSMC } = await import('./smc');
-      const rawData = await getMultiTFData(symbol, market, smcTf);
+      const rawData = await getMultiTFData(c.env, symbol, market, smcTf, cache);
       if (!rawData) return null;
       const smcResult = analyzeSMC(rawData, smcTf);
       if (!smcResult) return null;
