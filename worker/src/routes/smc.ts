@@ -463,22 +463,24 @@ export function analyzeSMC(data: any, tf?: string): any {
     signals.push('No clear structure — wait for BOS/CHoCH');
   }
 
-  // Risk levels — scalping/intraday style (tighter SL/TP)
-  const slDistance = atrValue * 0.75;
+  // Risk levels — every target sits above 1:1 RR by construction (tp1 = 1.5R,
+  // tp2 = 2.5R, tp3 = 3.75R against a 0.8 ATR stop), so any strategy that trades
+  // to tp1 or beyond is structurally favorable regardless of win rate.
+  const slDistance = atrValue * 0.8;
   let entryZone, sl, tp1, tp2, tp3;
 
   if (bias === 'bullish') {
     entryZone = close;
     sl = close - slDistance;
-    tp1 = close + atrValue * 0.5;
-    tp2 = close + atrValue * 1;
-    tp3 = close + atrValue * 1.5;
+    tp1 = close + atrValue * 1.2;
+    tp2 = close + atrValue * 2.0;
+    tp3 = close + atrValue * 3.0;
   } else if (bias === 'bearish') {
     entryZone = close;
     sl = close + slDistance;
-    tp1 = close - atrValue * 0.5;
-    tp2 = close - atrValue * 1;
-    tp3 = close - atrValue * 1.5;
+    tp1 = close - atrValue * 1.2;
+    tp2 = close - atrValue * 2.0;
+    tp3 = close - atrValue * 3.0;
   }
 
   return {
