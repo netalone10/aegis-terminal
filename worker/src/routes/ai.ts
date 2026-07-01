@@ -15,9 +15,10 @@ const KILL_ZONE_LABELS: Record<string, string> = {
 };
 
 // Gather live XAUUSD market context for the AI system prompt
-async function gatherMarketContext(): Promise<string> {
+async function gatherMarketContext(env: Bindings): Promise<string> {
   try {
-    const rawData = await getMultiTFData('XAUUSD', 'cfd', '1D');
+    const cache = new Cache(env.AEGIS_CACHE, 120);
+    const rawData = await getMultiTFData(env, 'XAUUSD', 'cfd', '1D', cache);
     if (!rawData) return 'XAU/USD: Market data unavailable at this time.';
 
     const analysis = analyzeSMC(rawData);
@@ -59,8 +60,8 @@ async function gatherMarketContext(): Promise<string> {
 }
 
 // Build full system prompt with live context
-async function buildSystemPrompt(): Promise<string> {
-  const marketContext = await gatherMarketContext();
+async function buildSystemPrompt(env: Bindings): Promise<string> {
+  const marketContext = await gatherMarketContext(env);
 
   return `You are Aegis AI — an institutional-grade trading assistant specializing in Smart Money Concepts (SMC) and ICT methodology.
 
@@ -123,7 +124,7 @@ aiRoutes.post('/chat', async (c) => {
       // Still try to gather market data for fallback
       let marketSnippet = '';
       try {
-        const rawData = await getMultiTFData('XAUUSD', 'cfd', '1D');
+        const rawData = await getMultiTFData(c.env, 'XAUUSD', 'cfd', '1D', new Cache(c.env.AEGIS_CACHE, 120));
         if (rawData) {
           const analysis = analyzeSMC(rawData);
           if (analysis) {
@@ -154,7 +155,7 @@ aiRoutes.post('/chat', async (c) => {
     }
 
     // Build system prompt with live market context
-    const systemPrompt = await buildSystemPrompt();
+    const systemPrompt = await buildSystemPrompt(c.env);
 
     // Assemble messages: system + history + current user message
     const messages = [

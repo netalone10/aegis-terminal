@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { Cache } from '../cache';
 import type { Bindings } from '../index';
+import { getCandles, type Candle } from '../lib/candles';
 
 export const marketRoutes = new Hono<{ Bindings: Bindings }>();
 
@@ -55,22 +56,22 @@ marketRoutes.get('/price/:symbol', async (c) => {
   }
 });
 
-// GET /api/market/candles/:symbol — Yahoo chart data
+// GET /api/market/candles/:symbol — MT5 first (for the 57 Valetax symbols), Yahoo fallback
 marketRoutes.get('/candles/:symbol', async (c) => {
   const symbol = c.req.param('symbol');
   const interval = c.req.query('interval') ?? '1d';
   const range = c.req.query('range') ?? '3mo';
+  const limit = parseInt(c.req.query('limit') ?? '200', 10);
   const cache = new Cache(c.env.AEGIS_CACHE, 300);
 
   try {
-    const key = `candles:${symbol}:${interval}:${range}`;
-    const data = await cache.getOrSet(key, async () => {
+    const yahooFallback = async (): Promise<Candle[]> => {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`;
       const res = await fetch(url, { headers: { 'User-Agent': 'AegisTerminal/1.0' } });
       if (!res.ok) throw new Error(`Yahoo ${res.status}`);
       const json: any = await res.json();
       const result = json.chart?.result?.[0];
-      if (!result) return null;
+      if (!result) return [];
       const q = result.indicators?.quote?.[0] ?? {};
       const timestamps = result.timestamp ?? [];
       return timestamps.map((t: number, i: number) => ({
@@ -79,11 +80,17 @@ marketRoutes.get('/candles/:symbol', async (c) => {
         high: q.high?.[i],
         low: q.low?.[i],
         close: q.close?.[i],
-        volume: q.volume?.[i],
-      })).filter((c: any) => c.close != null);
+        volume: q.volume?.[i] ?? 0,
+      })).filter((cd: Candle) => cd.close != null);
+    };
+
+    const key = `candles:${symbol}:${interval}:${range}:${limit}`;
+    const { candles, source } = await cache.getOrSet(key, async () => {
+      return getCandles(c.env, symbol, interval, limit, cache, yahooFallback);
     }, { ttl: 300 });
-    if (!data) return c.json({ error: 'No data' }, 404);
-    return c.json({ status: 'ok', symbol, interval, range, data });
+
+    if (!candles || candles.length === 0) return c.json({ error: 'No data' }, 404);
+    return c.json({ status: 'ok', symbol, interval, range, data: candles, source });
   } catch (e: any) {
     return c.json({ error: e.message }, 502);
   }

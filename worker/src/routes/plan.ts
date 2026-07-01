@@ -76,7 +76,7 @@ planRoutes.get('/daily', async (c) => {
       const pairs: any[] = [];
       for (const s of symbols) {
         try {
-          const raw = await getMultiTFData(s.name, s.market, '1D');
+          const raw = await getMultiTFData(c.env, s.name, s.market, '1D', cache);
           const analysis = raw ? analyzeSMC(raw) : null;
           if (analysis) pairs.push({ symbol: s.label, ...analysis });
         } catch { /* skip */ }

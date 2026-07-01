@@ -1,8 +1,61 @@
 import { Hono } from 'hono';
 import { Cache } from '../cache';
 import type { Bindings } from '../index';
+import { getCandles, type Candle } from '../lib/candles';
 
 export const forexRoutes = new Hono<{ Bindings: Bindings }>();
+
+// Yahoo fallback for forex candles — only exercised if the MT5 bridge is down, since every
+// symbol /live and /candles serve here is already covered by MT5_SYMBOL_MAP.
+const FOREX_YAHOO_MAP: Record<string, string> = {
+  XAUUSD: 'GC=F', XAU: 'GC=F', EURUSD: 'EURUSD=X', GBPUSD: 'GBPUSD=X',
+  USDJPY: 'USDJPY=X', USDIDR: 'USDIDR=X', AUDUSD: 'AUDUSD=X',
+  USDCAD: 'USDCAD=X', NZDUSD: 'NZDUSD=X', USDCHF: 'USDCHF=X',
+};
+const FOREX_YAHOO_TF: Record<string, string> = {
+  '1m': '1m', '5m': '5m', '15m': '15m', '1H': '1h', '4H': '1h', '1D': '1d',
+};
+
+async function fetchForexYahooOHLCV(symbol: string, tf: string, limit: number): Promise<Candle[]> {
+  const yahooSym = FOREX_YAHOO_MAP[symbol.toUpperCase()] ?? `${symbol.toUpperCase()}=X`;
+  const interval = FOREX_YAHOO_TF[tf] ?? '1d';
+  const needAggregate4h = tf === '4H';
+  const actualInterval = needAggregate4h ? '1h' : interval;
+  const range = actualInterval === '1m' ? '1d' : actualInterval === '5m' ? '5d' : actualInterval === '15m' ? '1mo' : actualInterval === '1h' ? '3mo' : '6mo';
+
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSym}?interval=${actualInterval}&range=${range}`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!res.ok) return [];
+  const json: any = await res.json();
+  const result = json?.chart?.result?.[0];
+  if (!result) return [];
+
+  const ts: number[] = result.timestamp ?? [];
+  const q = result.indicators?.quote?.[0] ?? {};
+  const candles: Candle[] = [];
+  for (let i = 0; i < ts.length; i++) {
+    if (q.open?.[i] == null || q.close?.[i] == null) continue;
+    candles.push({ time: ts[i], open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume?.[i] ?? 0 });
+  }
+  return needAggregate4h ? aggregateForexCandles(candles).slice(-limit) : candles.slice(-limit);
+}
+
+function aggregateForexCandles(candles: Candle[]): Candle[] {
+  const agg: Candle[] = [];
+  for (let i = 0; i < candles.length; i += 4) {
+    const chunk = candles.slice(i, i + 4);
+    if (chunk.length === 0) continue;
+    agg.push({
+      time: chunk[0].time,
+      open: chunk[0].open,
+      high: Math.max(...chunk.map(c => c.high)),
+      low: Math.min(...chunk.map(c => c.low)),
+      close: chunk[chunk.length - 1].close,
+      volume: chunk.reduce((s, c) => s + c.volume, 0),
+    });
+  }
+  return agg;
+}
 
 // TV Scanner helper
 async function tvScan(query: object): Promise<any> {
@@ -85,7 +138,7 @@ forexRoutes.get('/live', async (c) => {
 
 // GET /api/forex/ticker — lightweight ticker for ticker bar
 forexRoutes.get('/ticker', async (c) => {
-  const cache = new Cache(c.env.AEGIS_CACHE, 30);
+  const cache = new Cache(c.env.AEGIS_CACHE, 60);
 
   try {
     const data = await cache.getOrSet('forex:ticker:v2', async () => {
@@ -132,6 +185,26 @@ forexRoutes.get('/price/:pair', async (c) => {
 
     if (!data) return c.json({ error: 'Pair not found' }, 404);
     return c.json({ status: 'ok', data });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 502);
+  }
+});
+
+// GET /api/forex/candles/:pair?tf=1H&limit=100 — raw OHLCV, MT5 first (Yahoo fallback)
+forexRoutes.get('/candles/:pair', async (c) => {
+  const pair = c.req.param('pair').toUpperCase().replace('/', '');
+  const tf = c.req.query('tf') || '1H';
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '100', 10), 1000);
+  const cache = new Cache(c.env.AEGIS_CACHE, 60);
+
+  try {
+    const key = `forex:candles:${pair}:${tf}:${limit}`;
+    const { candles, source } = await cache.getOrSet(key, async () => {
+      return getCandles(c.env, pair, tf, limit, cache, () => fetchForexYahooOHLCV(pair, tf, limit));
+    }, { ttl: 60 });
+
+    if (!candles || candles.length === 0) return c.json({ error: 'No data available' }, 404);
+    return c.json({ status: 'ok', pair, tf, data: candles, source });
   } catch (e: any) {
     return c.json({ error: e.message }, 502);
   }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { Cache } from '../cache';
 import type { Bindings } from '../index';
+import { getCandles } from '../lib/candles';
 
 export const smcRoutes = new Hono<{ Bindings: Bindings }>();
 
@@ -186,9 +187,9 @@ async function getForexData(symbol: string, market: string = 'cfd', tf?: string)
 }
 
 // Get multi-timeframe data (scanner + candle history) for structure analysis
-export async function getMultiTFData(symbol: string, market: string, tf?: string): Promise<any> {
+export async function getMultiTFData(env: Bindings, symbol: string, market: string, tf?: string, cache?: Cache): Promise<any> {
   const effectiveTf = tf || '1D';
-  const [tfData, weekData, candles] = await Promise.all([
+  const [tfData, weekData, candleResult] = await Promise.all([
     tvScan({
       columns: ['name', 'close', 'open', 'high', 'low', 'change', 'Recommend.All', 'RSI', 'EMA20', 'EMA50', 'ATR', 'High.1D', 'Low.1D', 'High.1W', 'Low.1W', 'High.1M', 'Low.1M', 'High.All', 'Low.All'],
       filter: [{ left: 'name', operation: 'equal', right: symbol }],
@@ -202,9 +203,10 @@ export async function getMultiTFData(symbol: string, market: string, tf?: string
       markets: [market],
       range: [0, 1],
     }),
-    // Fetch actual candle history for swing-based level derivation
-    fetchOHLCV(symbol, effectiveTf, 50).catch(() => []),
+    // Fetch actual candle history for swing-based level derivation (MT5 first, Yahoo fallback)
+    getCandles(env, symbol, effectiveTf, 50, cache, () => fetchOHLCV(symbol, effectiveTf, 50)).catch(() => ({ candles: [], source: 'yahoo' as const })),
   ]);
+  const candles = candleResult.candles;
 
   const d = tfData?.data?.[0];
   const w = weekData?.data?.[0];
@@ -517,7 +519,7 @@ smcRoutes.get('/analyze/:symbol', async (c) => {
   try {
     const data = await cache.getOrSet(`smc:${symbol}:${tf}`, async () => {
       const market = (symbol === 'XAUUSD' || symbol === 'XAU') ? 'cfd' : 'forex';
-      const rawData = await getMultiTFData(symbol, market, tf);
+      const rawData = await getMultiTFData(c.env, symbol, market, tf, cache);
       if (!rawData) return null;
       return analyzeSMC(rawData, tf);
     }, { ttl: 120 });
@@ -626,7 +628,7 @@ smcRoutes.get('/screener', async (c) => {
       const results = await Promise.all(
         combos.map(async ({ symbol, tf }) => {
           try {
-            const rawData = await getMultiTFData(symbol.name, symbol.market, tf);
+            const rawData = await getMultiTFData(c.env, symbol.name, symbol.market, tf, cache);
             if (!rawData) return null;
             const analysis = analyzeSMC(rawData, tf);
             if (!analysis) return null;
@@ -693,7 +695,7 @@ smcRoutes.get('/batch', async (c) => {
       const results = await Promise.all(
         symbols.map(async (s) => {
           try {
-            const rawData = await getMultiTFData(s.name, s.market, tf);
+            const rawData = await getMultiTFData(c.env, s.name, s.market, tf, cache);
             const analysis = rawData ? analyzeSMC(rawData, tf) : null;
             return analysis ? { symbol: s.label, ...analysis } : null;
           } catch {
@@ -730,9 +732,9 @@ smcRoutes.get('/confluence', async (c) => {
         symbols.map(async (s) => {
           try {
             const [dailyRaw, h4Raw, h1Raw] = await Promise.all([
-              getMultiTFData(s.name, s.market, '1D'),
-              getMultiTFData(s.name, s.market, '4H'),
-              getMultiTFData(s.name, s.market, '1H'),
+              getMultiTFData(c.env, s.name, s.market, '1D', cache),
+              getMultiTFData(c.env, s.name, s.market, '4H', cache),
+              getMultiTFData(c.env, s.name, s.market, '1H', cache),
             ]);
 
             const daily = dailyRaw ? analyzeSMC(dailyRaw, '1D') : null;
