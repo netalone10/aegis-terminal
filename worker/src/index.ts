@@ -8,6 +8,7 @@ import { macroRoutes } from './routes/macro';
 import { journalRoutes } from './routes/journal';
 import { newsRoutes } from './routes/news';
 import { forexRoutes } from './routes/forex';
+import { mt5Routes } from './routes/mt5';
 import { smcRoutes } from './routes/smc';
 import { calendarRoutes } from './routes/calendar';
 import { tradeRoutes } from './routes/trade';
@@ -22,6 +23,8 @@ export type Bindings = {
   AEGIS_CACHE: KVNamespace;
   GROQ_API_KEY: string;
   FRED_API_KEY: string;
+  MT5_API_URL: string;
+  MT5_API_KEY: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -36,6 +39,7 @@ app.route('/api/macro', macroRoutes);
 app.route('/api/journal', journalRoutes);
 app.route('/api/news', newsRoutes);
 app.route('/api/forex', forexRoutes);
+app.route('/api/mt5', mt5Routes);
 app.route('/api/smc', smcRoutes);
 app.route('/api/calendar', calendarRoutes);
 app.route('/api/trades', tradeRoutes);
