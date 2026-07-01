@@ -36,6 +36,12 @@ function groupNavItems(items: NavItem[]): NavGroup[] {
       ),
     },
     {
+      label: 'RESEARCH',
+      items: items.filter(i =>
+        ['/central-bank', '/regime', '/weekly', '/archive', '/session-report'].includes(i.to)
+      ),
+    },
+    {
       label: 'AI',
       items: items.filter(i => ['/ai'].includes(i.to)),
     },

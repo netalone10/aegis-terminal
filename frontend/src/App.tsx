@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart,
   Briefcase, Bot, DollarSign, Calendar as CalendarIcon, Calculator,
-  Timer, Layers, Grid3x3, Map, FileText, FlaskConical, Activity, ScrollText, Terminal
+  Timer, Layers, Grid3x3, Map, FileText, FlaskConical, Activity, ScrollText, Terminal,
+  Landmark
 } from 'lucide-react'
 import TopBar from './components/TopBar'
 import HomeModule from './modules/home/Home'
@@ -31,6 +32,10 @@ import StructureMap from './modules/analysis/StructureMap'
 import Correlation from './modules/analysis/Correlation'
 import TradePlan from './modules/analysis/TradePlan'
 import AnalysisNarrative from './modules/analysis/AnalysisNarrative'
+import CentralBank from './modules/analysis/CentralBank'
+import Regime from './modules/analysis/Regime'
+import WeeklyOutlook from './modules/analysis/WeeklyOutlook'
+import ReportArchive from './modules/analysis/ReportArchive'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,6 +74,10 @@ const navItems = [
   { to: '/session-report', label: 'Report', icon: BarChart3 },
   { to: '/backtest', label: 'Backtest', icon: FlaskConical },
   { to: '/narrative', label: 'Narrative', icon: ScrollText },
+  { to: '/central-bank', label: 'CB Watch', icon: Landmark },
+  { to: '/regime', label: 'Regime', icon: Activity },
+  { to: '/weekly', label: 'Weekly', icon: CalendarIcon },
+  { to: '/archive', label: 'Archive', icon: FileText },
 ]
 
 function AppShell() {
@@ -103,6 +112,10 @@ function AppShell() {
             <Route path="/session-report" element={<SessionReport />} />
             <Route path="/backtest" element={<Backtest />} />
             <Route path="/narrative" element={<AnalysisNarrative />} />
+            <Route path="/central-bank" element={<CentralBank />} />
+            <Route path="/regime" element={<Regime />} />
+            <Route path="/weekly" element={<WeeklyOutlook />} />
+            <Route path="/archive" element={<ReportArchive />} />
           </Routes>
         </main>
         <footer style={{
