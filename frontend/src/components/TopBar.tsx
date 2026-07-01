@@ -20,7 +20,7 @@ function groupNavItems(items: NavItem[]): NavGroup[] {
     {
       label: 'TRADING',
       items: items.filter(i =>
-        ['/plan', '/decision', '/confluence', '/screener', '/risk', '/killzone', '/trades'].includes(i.to)
+        ['/terminal', '/plan', '/decision', '/confluence', '/screener', '/risk', '/killzone', '/trades'].includes(i.to)
       ),
     },
     {

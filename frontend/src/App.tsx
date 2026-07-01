@@ -2,11 +2,12 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart,
-  Briefcase, Bot, DollarSign, Sparkles, Calendar as CalendarIcon, Calculator,
-  Timer, Layers, Grid3x3, Map, FileText, FlaskConical, Activity, ScrollText
+  Briefcase, Bot, DollarSign, Calendar as CalendarIcon, Calculator,
+  Timer, Layers, Grid3x3, Map, FileText, FlaskConical, Activity, ScrollText, Terminal
 } from 'lucide-react'
 import TopBar from './components/TopBar'
 import HomeModule from './modules/home/Home'
+import Landing from './modules/landing/Landing'
 import Market from './modules/market/Market'
 import Decision from './modules/analysis/Decision'
 import Confluence from './modules/analysis/Confluence'
@@ -19,7 +20,6 @@ import TradeManager from './modules/portfolio/TradeManager'
 import Journal from './modules/analysis/Journal'
 import AI from './modules/analysis/AI'
 import Rates from './modules/analysis/Rates'
-import Landing from './modules/landing/Landing'
 import RiskCalc from './modules/analysis/RiskCalc'
 import KillZone from './modules/analysis/KillZone'
 import Sentiment from './modules/analysis/Sentiment'
@@ -45,6 +45,7 @@ const queryClient = new QueryClient({
 
 const navItems = [
   { to: '/', label: 'Home', icon: Home },
+  { to: '/terminal', label: 'Terminal', icon: Terminal },
   { to: '/market', label: 'Market', icon: BarChart3 },
   { to: '/plan', label: 'Plan', icon: FileText },
   { to: '/decision', label: 'SMC', icon: Crosshair },
@@ -68,7 +69,6 @@ const navItems = [
   { to: '/session-report', label: 'Report', icon: BarChart3 },
   { to: '/backtest', label: 'Backtest', icon: FlaskConical },
   { to: '/narrative', label: 'Narrative', icon: ScrollText },
-  { to: '/about', label: 'About', icon: Sparkles },
 ]
 
 function AppShell() {
@@ -78,7 +78,8 @@ function AppShell() {
         <TopBar navItems={navItems} />
         <main className="kt-main">
           <Routes>
-            <Route path="/" element={<HomeModule />} />
+            <Route path="/" element={<Landing />} />
+            <Route path="/terminal" element={<HomeModule />} />
             <Route path="/market" element={<Market />} />
             <Route path="/plan" element={<TradePlan />} />
             <Route path="/decision" element={<Decision />} />
@@ -102,7 +103,6 @@ function AppShell() {
             <Route path="/session-report" element={<SessionReport />} />
             <Route path="/backtest" element={<Backtest />} />
             <Route path="/narrative" element={<AnalysisNarrative />} />
-            <Route path="/about" element={<Landing />} />
           </Routes>
         </main>
         <footer style={{
