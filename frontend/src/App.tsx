@@ -24,19 +24,6 @@ const queryClient = new QueryClient({
   },
 })
 
-const navItems = [
-  { to: '/terminal', label: 'Dashboard', icon: Home },
-  { to: '/chart', label: 'Charts', icon: Chart },
-  { to: '/smc', label: 'SMC', icon: Decision },
-  { to: '/killzone', label: 'Kill Zone', icon: KillZone },
-  { to: '/screening', label: 'Screening', icon: Screener },
-  { to: '/calendar', label: 'Calendar', icon: Calendar },
-  { to: '/rates', label: 'Rates', icon: Rates },
-  { to: '/news', label: 'News', icon: HeadlineNews },
-  { to: '/research', label: 'Research', icon: Research },
-  { to: '/journal', label: 'Journal', icon: Journal },
-]
-
 function AppShell() {
   return (
     <div className="kt-page">

@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
 import {
-  Activity, TrendingUp, TrendingDown, Minus, AlertTriangle,
+  Activity, TrendingUp, TrendingDown, Minus,
   Clock, Wifi, WifiOff, Zap, Calendar, Target, BarChart3, Shield,
 } from 'lucide-react'
 import { api } from '../../lib/api'

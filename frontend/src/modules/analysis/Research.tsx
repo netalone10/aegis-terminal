@@ -21,14 +21,7 @@ const RESEARCH_SOURCES = [
   { key: 'macro', label: 'Macro Research' },
 ] as const
 
-// Static institutional research feeds (curated)
-const RESEARCH_FEEDS = [
-  { url: 'https://www.federalreserve.gov/feeds/press_all.xml', label: 'Federal Reserve', category: 'central-bank' },
-  { url: 'https://www.ecb.europa.eu/rss/press.html', label: 'ECB', category: 'central-bank' },
-  { url: 'https://www.imf.org/en/News/rss', label: 'IMF', category: 'institutional' },
-  { url: 'https://www.bis.org/doclist/pressrelease.rss', label: 'BIS', category: 'institutional' },
-  { url: 'https://www.investing.com/rss/news.rss', label: 'Investing.com', category: 'macro' },
-]
+
 
 function BiasIcon({ bias }: { bias?: string }) {
   if (bias === 'bullish') return <TrendingUp size={14} className="text-emerald-400" />
