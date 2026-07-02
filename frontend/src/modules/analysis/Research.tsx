@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { BookOpen, Building2, TrendingUp, TrendingDown, Minus, ExternalLink, Filter } from 'lucide-react'
+import { BookOpen, Building2, TrendingUp, TrendingDown, Minus, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '../../lib/api'
+
+/* ═══ TYPES ═══ */
 
 type ResearchItem = {
   title: string
@@ -13,26 +15,43 @@ type ResearchItem = {
   bias?: 'bullish' | 'bearish' | 'neutral'
 }
 
-// Research sources that aggregate institutional views
-const RESEARCH_SOURCES = [
-  { key: 'all', label: 'All Sources' },
-  { key: 'central-bank', label: 'Central Banks' },
-  { key: 'institutional', label: 'Institutional' },
-  { key: 'macro', label: 'Macro Research' },
+/* ═══ CONSTANTS ═══ */
+
+const FILTER_TABS = [
+  { key: 'all', label: 'ALL', color: 'var(--kt-text)' },
+  { key: 'central-bank', label: 'CENTRAL BANKS', color: '#60a5fa' },
+  { key: 'institutional', label: 'INSTITUTIONAL', color: '#f59e0b' },
+  { key: 'macro', label: 'MACRO', color: '#22c55e' },
 ] as const
 
-
-
-function BiasIcon({ bias }: { bias?: string }) {
-  if (bias === 'bullish') return <TrendingUp size={14} className="text-emerald-400" />
-  if (bias === 'bearish') return <TrendingDown size={14} className="text-red-400" />
-  return <Minus size={14} className="text-muted" />
+const SECTION_CFG: Record<string, { icon: any; color: string; label: string }> = {
+  'central-bank': { icon: Building2, color: '#60a5fa', label: 'Central Banks' },
+  'institutional': { icon: Building2, color: '#f59e0b', label: 'Institutional' },
+  'macro': { icon: TrendingUp, color: '#22c55e', label: 'Macro Research' },
 }
 
-// Fetch institutional research from CF Worker
+/* ═══ HELPERS ═══ */
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
+function BiasIcon({ bias }: { bias?: string }) {
+  if (bias === 'bullish') return <TrendingUp size={12} style={{ color: '#22c55e' }} />
+  if (bias === 'bearish') return <TrendingDown size={12} style={{ color: '#ef4444' }} />
+  return <Minus size={12} style={{ color: 'var(--kt-muted)' }} />
+}
+
+/* ═══ DATA FETCHER ═══ */
+
 async function fetchResearch(): Promise<ResearchItem[]> {
   try {
-    // Use the news endpoint with macro/institutional categories
     const [macroNews, stocksNews] = await Promise.all([
       api<any[]>(`/api/news/latest?category=macro&limit=15`),
       api<any[]>(`/api/news/latest?category=stocks&limit=10`),
@@ -40,7 +59,6 @@ async function fetchResearch(): Promise<ResearchItem[]> {
 
     const items: ResearchItem[] = []
 
-    // Map macro news to research items
     for (const item of (macroNews || [])) {
       const lowerTitle = (item.title || '').toLowerCase()
       let bias: 'bullish' | 'bearish' | 'neutral' = 'neutral'
@@ -62,7 +80,6 @@ async function fetchResearch(): Promise<ResearchItem[]> {
       })
     }
 
-    // Map stock news to research
     for (const item of (stocksNews || [])) {
       items.push({
         title: item.title,
@@ -80,14 +97,113 @@ async function fetchResearch(): Promise<ResearchItem[]> {
   }
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
+/* ═══ RESEARCH CARD ═══ */
+
+function ResearchCard({ item, color }: { item: ResearchItem; color: string }) {
+  return (
+    <a
+      href={item.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: 'block', background: 'var(--kt-bg2)', borderRadius: 12,
+        border: '1px solid var(--kt-border)', padding: '14px 16px',
+        textDecoration: 'none', color: 'inherit', transition: 'border-color 0.15s',
+      }}
+      onMouseEnter={e => (e.currentTarget.style.borderColor = `${color}40`)}
+      onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--kt-border)')}
+    >
+      {/* Meta */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
+          padding: '2px 8px', borderRadius: 4,
+          background: `${color}18`, color,
+        }}>
+          {item.category.replace('-', ' ')}
+        </span>
+        <span style={{ fontSize: 10, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+          {item.source}
+        </span>
+        <span style={{ fontSize: 10, color: 'var(--kt-dim)' }}>·</span>
+        <span style={{ fontSize: 10, color: 'var(--kt-dim)' }}>
+          {timeAgo(item.date)}
+        </span>
+        {item.bias && <BiasIcon bias={item.bias} />}
+        <ExternalLink size={11} style={{ marginLeft: 'auto', color: 'var(--kt-muted)' }} />
+      </div>
+
+      {/* Title */}
+      <h3 style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.4, margin: 0 }}>
+        {item.title}
+      </h3>
+
+      {/* Summary */}
+      {item.summary && (
+        <p style={{ fontSize: 11, color: 'var(--kt-muted)', marginTop: 6, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {item.summary}
+        </p>
+      )}
+    </a>
+  )
 }
+
+/* ═══ SECTION ═══ */
+
+function ResearchSection({ title, items, color, icon: Icon }: { title: string; items: ResearchItem[]; color: string; icon: any }) {
+  const [expanded, setExpanded] = useState(true)
+  const displayed = expanded ? items : items.slice(0, 3)
+
+  return (
+    <div style={{ background: 'var(--kt-bg2)', borderRadius: 12, border: '1px solid var(--kt-border)', overflow: 'hidden' }}>
+      {/* Section Header */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 16px', cursor: 'pointer', borderBottom: expanded ? '1px solid var(--kt-border)' : 'none',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon size={14} style={{ color }} />
+          <span style={{ fontSize: 12, fontWeight: 600 }}>{title}</span>
+          <span style={{
+            fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
+            background: `${color}18`, color,
+          }}>
+            {items.length}
+          </span>
+        </div>
+        {expanded ? <ChevronUp size={14} style={{ color: 'var(--kt-muted)' }} /> : <ChevronDown size={14} style={{ color: 'var(--kt-muted)' }} />}
+      </div>
+
+      {/* Items */}
+      {expanded && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {displayed.map((item, i) => (
+            <div key={i} style={{ padding: '12px 16px', borderBottom: i < displayed.length - 1 ? '1px solid var(--kt-border)' : 'none' }}>
+              <ResearchCard item={item} color={color} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Show more */}
+      {!expanded && items.length > 3 && (
+        <div style={{ padding: '8px 16px', textAlign: 'center' }}>
+          <button
+            onClick={() => setExpanded(true)}
+            style={{ background: 'none', border: 'none', color: 'var(--kt-gold)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Show all {items.length}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══ MAIN ═══ */
 
 export default function Research() {
   const [filter, setFilter] = useState<string>('all')
@@ -101,169 +217,87 @@ export default function Research() {
 
   const filtered = filter === 'all' ? research : research.filter(r => r.category === filter)
 
-  // Group by category
   const centralBank = filtered.filter(r => r.category === 'central-bank')
   const institutional = filtered.filter(r => r.category === 'institutional')
   const macroRes = filtered.filter(r => r.category === 'macro')
 
+  const sections = [
+    { key: 'central-bank', items: centralBank },
+    { key: 'institutional', items: institutional },
+    { key: 'macro', items: macroRes },
+  ].filter(s => s.items.length > 0)
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <BookOpen size={18} className="text-primary" />
-        <h1 className="text-lg font-semibold">Research</h1>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* ── Header ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <BookOpen size={16} style={{ color: 'var(--kt-gold)' }} />
+        <span style={{ fontSize: 14, fontWeight: 700 }}>Research</span>
+        <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--kt-muted)' }}>
+          {research.length} reports
+        </span>
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-2">
-        <Filter size={14} className="text-muted" />
-        {RESEARCH_SOURCES.map(src => (
+      {/* ── Filter Tabs ── */}
+      <div style={{ display: 'flex', gap: 2, background: 'var(--kt-bg2)', borderRadius: 8, padding: 3, border: '1px solid var(--kt-border)' }}>
+        {FILTER_TABS.map(tab => (
           <button
-            key={src.key}
-            onClick={() => setFilter(src.key)}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-              filter === src.key
-                ? 'bg-primary-bg text-primary-hover'
-                : 'text-muted hover:text-ink hover:bg-surface-hover'
-            }`}
+            key={tab.key}
+            onClick={() => setFilter(tab.key)}
+            style={{
+              flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+              fontFamily: 'var(--font-mono)', letterSpacing: 0.5, border: 'none', cursor: 'pointer',
+              transition: 'all 0.15s',
+              background: filter === tab.key ? 'var(--kt-gold)' : 'transparent',
+              color: filter === tab.key ? '#000' : 'var(--kt-text2)',
+            }}
           >
-            {src.label}
+            {tab.label}
           </button>
         ))}
       </div>
 
+      {/* ── Content ── */}
       {isLoading ? (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[1, 2, 3].map(i => (
-            <div key={i} className="kt-card animate-pulse">
-              <div className="h-4 bg-surface-hover rounded w-3/4 mb-2" />
-              <div className="h-3 bg-surface-hover rounded w-1/2" />
+            <div key={i} style={{ background: 'var(--kt-bg2)', borderRadius: 12, padding: 16, border: '1px solid var(--kt-border)' }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <div style={{ width: 60, height: 12, borderRadius: 4, background: 'var(--kt-bg3)' }} />
+                <div style={{ width: 40, height: 12, borderRadius: 4, background: 'var(--kt-bg3)' }} />
+              </div>
+              <div style={{ width: '85%', height: 14, borderRadius: 4, background: 'var(--kt-bg3)', marginBottom: 6 }} />
+              <div style={{ width: '60%', height: 10, borderRadius: 4, background: 'var(--kt-bg3)' }} />
             </div>
           ))}
         </div>
+      ) : sections.length === 0 ? (
+        <div style={{
+          background: 'var(--kt-bg2)', borderRadius: 12, border: '1px solid var(--kt-border)',
+          textAlign: 'center', padding: '40px 16px',
+        }}>
+          <BookOpen size={36} style={{ color: 'var(--kt-muted)', opacity: 0.3, marginBottom: 12 }} />
+          <p style={{ fontSize: 13, color: 'var(--kt-muted)' }}>No research available</p>
+        </div>
       ) : (
-        <>
-          {/* Central Bank Section */}
-          {(filter === 'all' || filter === 'central-bank') && centralBank.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Building2 size={14} className="text-primary" />
-                <h2 className="text-sm font-semibold">Central Banks</h2>
-                <span className="badge text-[10px]">{centralBank.length}</span>
-              </div>
-              <div className="space-y-2">
-                {centralBank.slice(0, 8).map((item, i) => (
-                  <a
-                    key={i}
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="kt-card block hover:border-primary/30 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] text-muted">{item.source}</span>
-                          <span className="text-[10px] text-muted">{timeAgo(item.date)}</span>
-                          <BiasIcon bias={item.bias} />
-                        </div>
-                        <h3 className="text-sm font-medium leading-snug">{item.title}</h3>
-                        {item.summary && (
-                          <p className="text-xs text-muted mt-1 line-clamp-2">{item.summary}</p>
-                        )}
-                      </div>
-                      <ExternalLink size={12} className="text-muted flex-shrink-0 mt-1" />
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Institutional Section */}
-          {(filter === 'all' || filter === 'institutional') && institutional.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Building2 size={14} className="text-amber-400" />
-                <h2 className="text-sm font-semibold">Institutional</h2>
-                <span className="badge text-[10px]">{institutional.length}</span>
-              </div>
-              <div className="space-y-2">
-                {institutional.slice(0, 8).map((item, i) => (
-                  <a
-                    key={i}
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="kt-card block hover:border-primary/30 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] text-muted">{item.source}</span>
-                          <span className="text-[10px] text-muted">{timeAgo(item.date)}</span>
-                        </div>
-                        <h3 className="text-sm font-medium leading-snug">{item.title}</h3>
-                        {item.summary && (
-                          <p className="text-xs text-muted mt-1 line-clamp-2">{item.summary}</p>
-                        )}
-                      </div>
-                      <ExternalLink size={12} className="text-muted flex-shrink-0 mt-1" />
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Macro Research Section */}
-          {(filter === 'all' || filter === 'macro') && macroRes.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <TrendingUp size={14} className="text-emerald-400" />
-                <h2 className="text-sm font-semibold">Macro Research</h2>
-                <span className="badge text-[10px]">{macroRes.length}</span>
-              </div>
-              <div className="space-y-2">
-                {macroRes.slice(0, 10).map((item, i) => (
-                  <a
-                    key={i}
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="kt-card block hover:border-primary/30 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] text-muted">{item.source}</span>
-                          <span className="text-[10px] text-muted">{timeAgo(item.date)}</span>
-                          <BiasIcon bias={item.bias} />
-                        </div>
-                        <h3 className="text-sm font-medium leading-snug">{item.title}</h3>
-                        {item.summary && (
-                          <p className="text-xs text-muted mt-1 line-clamp-2">{item.summary}</p>
-                        )}
-                      </div>
-                      <ExternalLink size={12} className="text-muted flex-shrink-0 mt-1" />
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {filtered.length === 0 && (
-            <div className="kt-card text-center py-8 text-muted">
-              <BookOpen size={32} className="mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No research available</p>
-            </div>
-          )}
-        </>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {sections.map(s => {
+            const cfg = SECTION_CFG[s.key] ?? { icon: BookOpen, color: 'var(--kt-muted)', label: s.key }
+            return (
+              <ResearchSection
+                key={s.key}
+                title={cfg.label}
+                items={s.items}
+                color={cfg.color}
+                icon={cfg.icon}
+              />
+            )
+          })}
+        </div>
       )}
 
-      {/* Sources */}
-      <div className="text-[10px] text-muted text-center pt-2">
+      {/* ── Footer ── */}
+      <div style={{ fontSize: 10, color: 'var(--kt-dim)', textAlign: 'center', paddingTop: 4 }}>
         Sources: Federal Reserve, ECB, IMF, BIS, Investing.com
       </div>
     </div>

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Newspaper, RefreshCw, ExternalLink, Filter } from 'lucide-react'
+import { Newspaper, RefreshCw, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '../../lib/api'
+
+/* ═══ TYPES ═══ */
 
 type NewsItem = {
   title: string
@@ -12,28 +14,33 @@ type NewsItem = {
   category: string
 }
 
-const CATEGORIES = [
-  { key: 'all', label: 'All' },
-  { key: 'macro', label: 'Macro' },
-  { key: 'stocks', label: 'Stocks' },
-  { key: 'crypto', label: 'Crypto' },
-] as const
-
-const CATEGORY_COLORS: Record<string, string> = {
-  macro: 'badge-info',
-  stocks: '',
-  crypto: 'gold',
-}
+/* ═══ HELPERS ═══ */
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return ''
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
   if (mins < 60) return `${mins}m ago`
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs}h ago`
   return `${Math.floor(hrs / 24)}d ago`
 }
+
+const CAT_TABS = [
+  { key: 'all', label: 'ALL', color: 'var(--kt-text)' },
+  { key: 'macro', label: 'MACRO', color: '#60a5fa' },
+  { key: 'stocks', label: 'STOCKS', color: '#a78bfa' },
+  { key: 'crypto', label: 'CRYPTO', color: '#f59e0b' },
+] as const
+
+const CAT_COLORS: Record<string, string> = {
+  macro: '#60a5fa',
+  stocks: '#a78bfa',
+  crypto: '#f59e0b',
+}
+
+/* ═══ MAIN ═══ */
 
 export default function HeadlineNews() {
   const [category, setCategory] = useState<string>('all')
@@ -48,99 +55,138 @@ export default function HeadlineNews() {
   })
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Newspaper size={18} className="text-primary" />
-          <h1 className="text-lg font-semibold">Headline News</h1>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* ── Header ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Newspaper size={16} style={{ color: 'var(--kt-gold)' }} />
+          <span style={{ fontSize: 14, fontWeight: 700 }}>Headline News</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--kt-muted)' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50', background: isFetching ? '#f59e0b' : '#22c55e', boxShadow: `0 0 6px ${isFetching ? '#f59e0b' : '#22c55e'}` }} />
+            <span>{isFetching ? 'UPDATING' : `${news.length} items`}</span>
+          </div>
         </div>
         <button
           onClick={() => refetch()}
-          className="btn-ghost text-xs flex items-center gap-1"
-          disabled={isFetching}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8,
+            background: 'var(--kt-bg2)', border: '1px solid var(--kt-border)', color: 'var(--kt-text2)',
+            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}
         >
-          <RefreshCw size={12} className={isFetching ? 'animate-spin' : ''} />
+          <RefreshCw size={12} style={{ animation: isFetching ? 'spin 1s linear infinite' : 'none' }} />
           Refresh
         </button>
       </div>
 
-      {/* Category Filter */}
-      <div className="flex items-center gap-2">
-        <Filter size={14} className="text-muted" />
-        {CATEGORIES.map(cat => (
+      {/* ── Category Tabs ── */}
+      <div style={{ display: 'flex', gap: 2, background: 'var(--kt-bg2)', borderRadius: 8, padding: 3, border: '1px solid var(--kt-border)' }}>
+        {CAT_TABS.map(tab => (
           <button
-            key={cat.key}
-            onClick={() => setCategory(cat.key)}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-              category === cat.key
-                ? 'bg-primary-bg text-primary-hover'
-                : 'text-muted hover:text-ink hover:bg-surface-hover'
-            }`}
+            key={tab.key}
+            onClick={() => setCategory(tab.key)}
+            style={{
+              flex: 1, padding: '7px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+              fontFamily: 'var(--font-mono)', letterSpacing: 0.5, border: 'none', cursor: 'pointer',
+              transition: 'all 0.15s',
+              background: category === tab.key ? 'var(--kt-gold)' : 'transparent',
+              color: category === tab.key ? '#000' : 'var(--kt-text2)',
+            }}
           >
-            {cat.label}
+            {tab.label}
           </button>
         ))}
       </div>
 
-      {/* News List */}
+      {/* ── News Feed ── */}
       {isLoading ? (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="kt-card animate-pulse">
-              <div className="h-4 bg-surface-hover rounded w-3/4 mb-2" />
-              <div className="h-3 bg-surface-hover rounded w-1/2" />
+            <div key={i} style={{ background: 'var(--kt-bg2)', borderRadius: 12, padding: 16, border: '1px solid var(--kt-border)' }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <div style={{ width: 40, height: 12, borderRadius: 4, background: 'var(--kt-bg3)' }} />
+                <div style={{ width: 60, height: 12, borderRadius: 4, background: 'var(--kt-bg3)' }} />
+                <div style={{ width: 30, height: 12, borderRadius: 4, background: 'var(--kt-bg3)' }} />
+              </div>
+              <div style={{ width: '80%', height: 14, borderRadius: 4, background: 'var(--kt-bg3)', marginBottom: 6 }} />
+              <div style={{ width: '50%', height: 10, borderRadius: 4, background: 'var(--kt-bg3)' }} />
             </div>
           ))}
         </div>
       ) : news.length === 0 ? (
-        <div className="kt-card text-center py-8 text-muted">
-          <Newspaper size={32} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No news available</p>
+        <div style={{
+          background: 'var(--kt-bg2)', borderRadius: 12, border: '1px solid var(--kt-border)',
+          textAlign: 'center', padding: '40px 16px',
+        }}>
+          <Newspaper size={36} style={{ color: 'var(--kt-muted)', opacity: 0.3, marginBottom: 12 }} />
+          <p style={{ fontSize: 13, color: 'var(--kt-muted)' }}>No news available</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {news.map((item, i) => (
-            <div
-              key={i}
-              className="kt-card cursor-pointer hover:border-primary/30 transition-colors"
-              onClick={() => setExpanded(expanded === i ? null : i)}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`badge text-[10px] ${CATEGORY_COLORS[item.category] || ''}`}>
-                      {item.category}
-                    </span>
-                    <span className="text-[10px] text-muted">{item.source}</span>
-                    {item.pubDate && (
-                      <span className="text-[10px] text-muted">{timeAgo(item.pubDate)}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {news.map((item, i) => {
+            const isExpanded = expanded === i
+            const catColor = CAT_COLORS[item.category] ?? 'var(--kt-muted)'
+            return (
+              <div
+                key={i}
+                onClick={() => setExpanded(isExpanded ? null : i)}
+                style={{
+                  background: 'var(--kt-bg2)', borderRadius: 12, border: '1px solid var(--kt-border)',
+                  padding: '14px 16px', cursor: 'pointer', transition: 'border-color 0.15s',
+                  borderColor: isExpanded ? `${catColor}40` : 'var(--kt-border)',
+                }}
+              >
+                {/* Meta row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
+                    padding: '2px 8px', borderRadius: 4,
+                    background: `${catColor}18`, color: catColor,
+                  }}>
+                    {item.category}
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {item.source}
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--kt-dim)' }}>·</span>
+                  <span style={{ fontSize: 10, color: 'var(--kt-dim)' }}>
+                    {timeAgo(item.pubDate)}
+                  </span>
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {item.link && (
+                      <a
+                        href={item.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        style={{ color: 'var(--kt-muted)', display: 'flex' }}
+                      >
+                        <ExternalLink size={12} />
+                      </a>
                     )}
+                    {isExpanded ? <ChevronUp size={12} style={{ color: 'var(--kt-muted)' }} /> : <ChevronDown size={12} style={{ color: 'var(--kt-muted)' }} />}
                   </div>
-                  <h3 className="text-sm font-medium leading-snug">{item.title}</h3>
-                  {expanded === i && item.description && (
-                    <p className="text-xs text-muted mt-2 leading-relaxed">{item.description}</p>
-                  )}
                 </div>
-                {item.link && (
-                  <a
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={e => e.stopPropagation()}
-                    className="text-muted hover:text-primary flex-shrink-0"
-                  >
-                    <ExternalLink size={14} />
-                  </a>
+
+                {/* Title */}
+                <h3 style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.4, margin: 0 }}>
+                  {item.title}
+                </h3>
+
+                {/* Description (expanded) */}
+                {isExpanded && item.description && (
+                  <p style={{ fontSize: 12, color: 'var(--kt-muted)', marginTop: 8, lineHeight: 1.6 }}>
+                    {item.description}
+                  </p>
                 )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
-      {/* Footer */}
-      <div className="text-[10px] text-muted text-center pt-2">
+      {/* ── Footer ── */}
+      <div style={{ fontSize: 10, color: 'var(--kt-dim)', textAlign: 'center', paddingTop: 4 }}>
         Aggregated from Yahoo Finance, CNBC, Investing.com, CoinDesk, CoinTelegraph
       </div>
     </div>
