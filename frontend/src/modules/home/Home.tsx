@@ -1,27 +1,78 @@
 import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import {
+  Activity, TrendingUp, TrendingDown, Minus, AlertTriangle,
+  Clock, Wifi, WifiOff, Zap, Calendar, Target, BarChart3, Shield,
+} from 'lucide-react'
 import { api } from '../../lib/api'
 
-const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+/* ── Kill Zone Helpers ── */
 
-const modules = [
-  { code: 'SMC', title: 'SMC / ICT Engine', desc: 'Bias, liquidity pool, order block, FVG, premium discount, killzone.', to: '/decision' },
-  { code: 'MKT', title: 'Live Market Workspace', desc: 'Quote forex, gold, crypto, indeks, dan market snapshot lintas aset.', to: '/market' },
-  { code: 'MAC', title: 'Macro Regime', desc: 'Rates, inflation, growth, policy, dan risk regime untuk top-down context.', to: '/macro' },
-  { code: 'CHT', title: 'Chart Lab', desc: 'Charting workspace untuk validasi struktur, level, dan execution zone.', to: '/chart' },
-  { code: 'SCN', title: 'Scanner', desc: 'Filter setup, watchlist, dan kandidat trade sesuai rule engine.', to: '/scanner' },
-  { code: 'JRN', title: 'Journal', desc: 'Log execution, invalidation, result, and lesson from each trade.', to: '/journal' },
-  { code: 'AI', title: 'AI Assistant', desc: 'Ringkas context pasar, tanya setup, dan buat decision checklist.', to: '/ai' },
-  { code: 'RTE', title: 'Rates & Bonds', desc: 'US yields, curve, Fed context, dan pressure ke gold / USD.', to: '/rates' },
-]
-
-function BiasBadge({ bias }: { bias?: string }) {
-  if (bias === 'bullish') return <span className="badge-bull">Bullish</span>
-  if (bias === 'bearish') return <span className="badge-bear">Bearish</span>
-  return <span className="badge-neutral">Neutral</span>
+function isKillZoneActive(): boolean {
+  const now = new Date()
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes()
+  return (mins >= 420 && mins <= 600) || (mins >= 720 && mins <= 900) || (mins >= 900 && mins <= 1020)
 }
 
+function activeKillZoneLabel(): string {
+  const utcH = new Date().getUTCHours()
+  if (utcH >= 0 && utcH < 3) return 'Tokyo Open'
+  if (utcH >= 7 && utcH < 10) return 'London Open'
+  if (utcH >= 12 && utcH < 15) return 'NY Open'
+  if (utcH >= 15 && utcH < 17) return 'London Close'
+  return 'No Active Kill Zone'
+}
+
+function nextKillZoneCountdown(): string {
+  const now = new Date()
+  const utcH = now.getUTCHours()
+  const utcM = now.getUTCMinutes()
+  const mins = utcH * 60 + utcM
+  const zones = [
+    { start: 0, label: 'Tokyo' },
+    { start: 420, label: 'London Open' },
+    { start: 720, label: 'NY Open' },
+    { start: 900, label: 'London Close' },
+  ]
+  for (const z of zones) {
+    if (mins < z.start) {
+      const diff = z.start - mins
+      return `${Math.floor(diff / 60)}h ${diff % 60}m → ${z.label}`
+    }
+  }
+  return 'Next: Tokyo 00:00 UTC'
+}
+
+/* ── Formatting ── */
+
+function biasColor(bias: string): string {
+  if (bias === 'bullish' || bias === 'BULLISH') return 'var(--kt-up)'
+  if (bias === 'bearish' || bias === 'BEARISH') return 'var(--kt-dn)'
+  return 'var(--kt-muted)'
+}
+
+function biasIcon(bias: string) {
+  if (bias === 'bullish' || bias === 'BULLISH') return <TrendingUp size={14} style={{ color: 'var(--kt-up)' }} />
+  if (bias === 'bearish' || bias === 'BEARISH') return <TrendingDown size={14} style={{ color: 'var(--kt-dn)' }} />
+  return <Minus size={14} style={{ color: 'var(--kt-muted)' }} />
+}
+
+const DAY_SHORT = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+
+/* ═══════════════════════════════════════════════════════════════════
+   DASHBOARD COMPONENT
+   ═══════════════════════════════════════════════════════════════════ */
+
 export default function Home() {
+  const [killActive, setKillActive] = useState(isKillZoneActive())
+
+  useEffect(() => {
+    const id = setInterval(() => setKillActive(isKillZoneActive()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  /* ── Queries ── */
   const { data: smcData } = useQuery<any>({
     queryKey: ['smc-batch'],
     queryFn: () => api('/api/smc/batch'),
@@ -30,140 +81,412 @@ export default function Home() {
     retry: false,
   })
 
-  const { data: newsData } = useQuery<any[]>({
-    queryKey: ['home-news'],
-    queryFn: () => api('/api/news/latest'),
+  const { data: price } = useQuery<any>({
+    queryKey: ['mt5-price', 'XAUUSD.vxc'],
+    queryFn: () => api('/api/mt5/price?symbol=XAUUSD.vxc'),
+    refetchInterval: 5_000,
+    retry: 2,
+  })
+
+  const { data: trades = [] } = useQuery<any[]>({
+    queryKey: ['trades'],
+    queryFn: () => api('/api/trades'),
+    refetchInterval: 15_000,
+    retry: false,
+  })
+
+  const { data: calendarEvents = [] } = useQuery<any[]>({
+    queryKey: ['calendar'],
+    queryFn: () => api('/api/calendar'),
     staleTime: 300_000,
     retry: false,
   })
 
+  const { data: macro } = useQuery<any>({
+    queryKey: ['macro'],
+    queryFn: () => api('/api/macro'),
+    staleTime: 300_000,
+    retry: false,
+  })
+
+  /* ── Derived Data ── */
   const pairs = Array.isArray(smcData) ? smcData : (smcData?.data ?? [])
   const xau = pairs.find((p: any) => p.symbol === 'XAU/USD')
   const eur = pairs.find((p: any) => p.symbol === 'EUR/USD')
   const gbp = pairs.find((p: any) => p.symbol === 'GBP/USD')
-  const mainPairs = [xau, eur, gbp].filter(Boolean)
 
-  const newsItems = (newsData ?? []).slice(0, 4).map((n: any) => ({
-    title: n.title ?? 'Untitled',
-    source: n.source ?? 'Market',
-    time: n.pubDate ? new Date(n.pubDate).toLocaleDateString('id-ID', { month: 'short', day: 'numeric' }) : '—',
-    link: n.link,
-  }))
+  const activeTrades = trades.filter((t: any) => t.status === 'active')
+  const totalPnl = trades.filter((t: any) => t.status === 'closed').reduce((s: number, t: any) => s + (t.current_pnl ?? 0), 0)
+
+  // Weekly calendar summary
+  const now = new Date()
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - now.getDay() + 1)
+  const friday = new Date(monday)
+  friday.setDate(monday.getDate() + 4)
+  const weekEvents = calendarEvents.filter((ev: any) => {
+    const d = new Date(ev.time || ev.date || '')
+    return d >= monday && d <= friday
+  })
+  const highImpactCount = weekEvents.filter((ev: any) => {
+    const impact = typeof ev.impact === 'number' ? ev.impact : String(ev.impact).toUpperCase() === 'HIGH' ? 3 : String(ev.impact).toUpperCase() === 'MEDIUM' ? 2 : 1
+    return impact >= 3
+  }).length
+
+  // Daily risk map for the week
+  const days = Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    const dayEvents = weekEvents.filter((ev: any) => {
+      const ed = new Date(ev.time || ev.date || '')
+      return ed.getFullYear() === d.getFullYear() && ed.getMonth() === d.getMonth() && ed.getDate() === d.getDate()
+    })
+    const maxImpact = dayEvents.length > 0
+      ? Math.max(...dayEvents.map((e: any) => typeof e.impact === 'number' ? e.impact : String(e.impact).toUpperCase() === 'HIGH' ? 3 : String(e.impact).toUpperCase() === 'MEDIUM' ? 2 : 1))
+      : 0
+    return { date: d, count: dayEvents.length, maxImpact }
+  })
+
+  const sentiment = macro?.regime?.toLowerCase() === 'expansion' ? 'Risk-On'
+    : macro?.regime?.toLowerCase() === 'deflation' || macro?.regime?.toLowerCase() === 'stagflation' ? 'Risk-Off'
+    : 'Mixed'
+
+  const conn = price ? true : false
 
   return (
-    <div>
-      <section className="kt-hero">
-        <div className="kt-hero-copy">
-          <div className="kt-eyebrow"><b>V3.0</b> Telah Hadir</div>
-          <h1 className="kt-hero-title">
-            One terminal to read <span>macro, flow, SMC, and execution.</span>
-          </h1>
-          <p className="kt-hero-sub">
-            Aegis Terminal menggabungkan live market data, SMC/ICT analysis, macro regime, dan workflow trading dalam satu workspace ringan untuk forex dan XAU/USD.
-          </p>
-          <div className="kt-hero-actions">
-            <NavLink className="kt-btn kt-btn-primary" to="/decision">Open SMC Engine</NavLink>
-            <NavLink className="kt-btn" to="/market">View Market</NavLink>
-            <NavLink className="kt-btn" to="/macro">Macro Regime</NavLink>
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          <div className="kt-mini-stats">
-            <div className="kt-mini-stat"><b>{pairs.length || 5}</b><span>Pairs monitored</span></div>
-            <div className="kt-mini-stat"><b>{xau?.bias?.toUpperCase?.() ?? 'NEUTRAL'}</b><span>XAU/USD bias</span></div>
-            <div className="kt-mini-stat"><b>{xau?.killZone?.replace('_', ' ')?.toUpperCase?.() ?? 'LIVE'}</b><span>Current session</span></div>
+      {/* ═══════════════════════════════════════════════════
+          TOP: Session + Bias + Quick P&L
+          ═══════════════════════════════════════════════════ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+
+        {/* Session Status */}
+        <div className="kt-card kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Clock size={16} style={{ color: killActive ? 'var(--kt-gold)' : 'var(--kt-muted)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Session</span>
           </div>
+          <div style={{
+            padding: '6px 10px', borderRadius: 6,
+            background: killActive ? 'rgba(245,158,11,.10)' : 'rgba(148,163,184,.06)',
+            border: `1px solid ${killActive ? 'rgba(245,158,11,.25)' : 'rgba(148,163,184,.10)'}`,
+          }}>
+            <span style={{ fontSize: 'var(--sm)', fontWeight: 700, color: killActive ? 'var(--kt-gold)' : 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+              {activeKillZoneLabel()}
+            </span>
+          </div>
+          <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
+            {nextKillZoneCountdown()}
+          </span>
         </div>
 
-        <div className="kt-terminal-card">
-          <div className="kt-terminal-bar">
-            <div className="kt-dots"><i /><i /><i /></div>
-            <div className="kt-terminal-code">TERMINAL PREVIEW · {today}</div>
+        {/* Daily Bias (XAU) */}
+        <div className="kt-card kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Target size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>XAU/USD Bias</span>
           </div>
-          <div className="kt-terminal-body">
-            {(mainPairs.length ? mainPairs : [
-              { symbol: 'XAU/USD', bias: 'neutral', confidence: 45, premiumDiscount: 'discount' },
-              { symbol: 'EUR/USD', bias: 'bullish', confidence: 90, premiumDiscount: 'discount' },
-              { symbol: 'GBP/USD', bias: 'bullish', confidence: 90, premiumDiscount: 'discount' },
-            ]).map((pair: any, idx: number) => (
-              <div className="kt-terminal-row" key={pair.symbol}>
-                <div className="code">{String(idx + 1).padStart(2, '0')}</div>
-                <div>
-                  <b>{pair.symbol}</b><br />
-                  <span>{pair.premiumDiscount?.toUpperCase?.() ?? 'ZONE'} · {pair.killZone?.replace('_', ' ')?.toUpperCase?.() ?? 'KILLZONE'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {biasIcon(xau?.bias ?? 'neutral')}
+            <span style={{ fontSize: 'var(--md)', fontWeight: 700, color: biasColor(xau?.bias ?? 'neutral'), textTransform: 'uppercase' }}>
+              {xau?.bias ?? 'Neutral'}
+            </span>
+            <span style={{ fontSize: 'var(--sm)', color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+              {xau?.confidence ?? 0}%
+            </span>
+          </div>
+          <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
+            {xau?.premiumDiscount?.toUpperCase?.() ?? 'ZONE'} · {xau?.killZone?.replace('_', ' ')?.toUpperCase?.() ?? '—'}
+          </span>
+        </div>
+
+        {/* Quick P&L */}
+        <div className="kt-card kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <BarChart3 size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Quick P&L</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'baseline' }}>
+            <div>
+              <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Active</span>
+              <span style={{ display: 'block', fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{activeTrades.length}</span>
+            </div>
+            <div>
+              <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Closed P&L</span>
+              <span style={{ display: 'block', fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)', color: totalPnl >= 0 ? 'var(--kt-up)' : 'var(--kt-dn)' }}>
+                {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════
+          MIDDLE: Key Levels + Live Rates
+          ═══════════════════════════════════════════════════ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+
+        {/* Key Levels Card (XAU/USD from SMC) */}
+        <div className="kt-card kt-card-pad">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Target size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>XAU/USD Key Levels</span>
+          </div>
+          {xau ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* Signals */}
+              {(xau.signals ?? []).slice(0, 3).map((s: string, i: number) => (
+                <div key={i} style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>
+                  → {s}
                 </div>
-                <em className={pair.bias === 'bearish' ? 'dn' : pair.bias === 'bullish' ? 'up' : ''}>{pair.confidence ?? 0}%</em>
+              ))}
+              {/* Structure */}
+              {xau.structure && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                  <span style={{
+                    fontSize: 9, padding: '2px 6px', borderRadius: 3,
+                    background: xau.structure.emaBias === 'bullish' ? 'rgba(34,197,94,.10)' : xau.structure.emaBias === 'bearish' ? 'rgba(239,68,68,.10)' : 'rgba(148,163,184,.08)',
+                    color: biasColor(xau.structure.emaBias),
+                  }}>EMA: {xau.structure.emaBias}</span>
+                  <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, background: 'rgba(255,255,255,.04)', color: 'var(--kt-muted)' }}>
+                    Price {xau.structure.priceVsEma} EMA
+                  </span>
+                </div>
+              )}
+              {/* Meta */}
+              {xau.meta && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                  <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>RSI {xau.meta.rsi?.toFixed(0)}</span>
+                  <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>ATR {xau.meta.atr?.toFixed(2)}</span>
+                </div>
+              )}
+              {/* Confidence Bar */}
+              <div style={{ marginTop: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <span style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase' }}>Confidence</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: biasColor(xau.bias), fontFamily: 'var(--font-mono)' }}>{xau.confidence}%</span>
+                </div>
+                <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden' }}>
+                  <div style={{ width: `${xau.confidence}%`, height: '100%', borderRadius: 2, background: biasColor(xau.bias), transition: 'width .4s' }} />
+                </div>
               </div>
-            ))}
-            <div className="kt-gridline" />
-          </div>
+            </div>
+          ) : (
+            <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Loading SMC data…</span>
+          )}
+          <NavLink to="/decision" style={{ display: 'block', marginTop: 10, fontSize: 'var(--xs)', color: 'var(--kt-gold)', textDecoration: 'none', fontWeight: 600 }}>
+            Full Trade Plan →
+          </NavLink>
         </div>
-      </section>
 
-      <section className="kt-section">
-        <div className="kt-section-head">
-          <div>
-            <h2>Full-featured, still clean.</h2>
-            <p>Delapan area inti untuk riset top-down sampai eksekusi.</p>
+        {/* Live Rates Watchlist (from MT5Live) */}
+        <div className="kt-card kt-card-pad">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Activity size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Live Rates</span>
+            {conn ? (
+              <span className="badge-bull" style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+                <Wifi size={10} /> Live
+              </span>
+            ) : (
+              <span className="badge-bear" style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+                <WifiOff size={10} /> Offline
+              </span>
+            )}
           </div>
-          <span className="kt-pill">8 Core Areas</span>
+
+          {/* XAU/USD live */}
+          <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 700, fontSize: 'var(--sm)', color: 'var(--kt-gold)', fontFamily: 'var(--font-mono)' }}>XAU/USD</span>
+              <span style={{ fontSize: 'var(--xxl)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
+                {price?.bid?.toFixed(2) ?? '—'}
+              </span>
+            </div>
+            {price && (
+              <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
+                <span>Ask: {price.ask?.toFixed(2)}</span>
+                <span>Spread: {price.spread} pts</span>
+              </div>
+            )}
+          </div>
+
+          {/* Other pairs from SMC */}
+          {[eur, gbp].filter(Boolean).map((pair: any) => (
+            <div key={pair.symbol} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '8px 12px', borderRadius: 6,
+              border: '1px solid var(--kt-border)',
+              marginBottom: 6,
+            }}>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: 'var(--sm)', fontFamily: 'var(--font-mono)' }}>{pair.symbol}</span>
+                <span style={{ marginLeft: 8, fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
+                  {pair.premiumDiscount?.toUpperCase?.() ?? '—'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {biasIcon(pair.bias)}
+                <span style={{ fontWeight: 700, fontSize: 'var(--sm)', color: biasColor(pair.bias), fontFamily: 'var(--font-mono)' }}>
+                  {pair.confidence}%
+                </span>
+              </div>
+            </div>
+          ))}
+
+          <NavLink to="/market" style={{ display: 'block', marginTop: 6, fontSize: 'var(--xs)', color: 'var(--kt-gold)', textDecoration: 'none', fontWeight: 600 }}>
+            Full Market View →
+          </NavLink>
         </div>
-        <div className="kt-module-grid">
-          {modules.map((m) => (
-            <NavLink className="kt-module" to={m.to} key={m.code}>
-              <div className="code">{m.code}</div>
-              <h3>{m.title}</h3>
-              <p>{m.desc}</p>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════
+          BOTTOM: Weekly Outlook + Open Positions
+          ═══════════════════════════════════════════════════ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+
+        {/* Weekly Outlook Summary */}
+        <div className="kt-card kt-card-pad">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Calendar size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Weekly Outlook</span>
+            <span style={{
+              marginLeft: 'auto', padding: '2px 8px', borderRadius: 4,
+              fontSize: 'var(--xs)', fontWeight: 700, fontFamily: 'var(--font-mono)',
+              background: sentiment === 'Risk-On' ? 'rgba(34,197,94,.15)' : sentiment === 'Risk-Off' ? 'rgba(239,68,68,.15)' : 'rgba(245,158,11,.12)',
+              color: sentiment === 'Risk-On' ? 'var(--kt-up)' : sentiment === 'Risk-Off' ? 'var(--kt-dn)' : 'var(--kt-gold)',
+            }}>
+              {sentiment}
+            </span>
+          </div>
+
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+            <div style={{ textAlign: 'center', padding: 6 }}>
+              <div style={{ fontSize: 'var(--md)', fontWeight: 700, color: highImpactCount > 3 ? '#f87171' : 'var(--kt-text)', fontFamily: 'var(--font-mono)' }}>{highImpactCount}</div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>High Impact</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: 6 }}>
+              <div style={{ fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{weekEvents.length}</div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Total Events</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: 6 }}>
+              <div style={{ fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{macro?.regime ?? '—'}</div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Regime</div>
+            </div>
+          </div>
+
+          {/* Risk Map */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 10 }}>
+            {days.map((day, i) => {
+              const bg = day.maxImpact >= 3 ? 'rgba(239,68,68,.12)' : day.maxImpact >= 2 ? 'rgba(245,158,11,.10)' : 'rgba(34,197,94,.08)'
+              const border = day.maxImpact >= 3 ? 'rgba(239,68,68,.35)' : day.maxImpact >= 2 ? 'rgba(245,158,11,.25)' : 'rgba(34,197,94,.20)'
+              const col = day.maxImpact >= 3 ? '#f87171' : day.maxImpact >= 2 ? '#f59e0b' : 'var(--kt-up)'
+              return (
+                <div key={i} style={{ padding: 8, borderRadius: 6, background: bg, border: `1px solid ${border}`, textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>{DAY_SHORT[day.date.getDay()]}</div>
+                  <div style={{ fontSize: 'var(--md)', fontWeight: 800, color: col, fontFamily: 'var(--font-mono)' }}>{day.count}</div>
+                </div>
+              )
+            })}
+          </div>
+
+          {macro && (
+            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(245,158,11,.06)', borderLeft: '3px solid var(--kt-gold)', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
+              DXY: {macro.dxy?.toFixed(2) ?? '—'} · 10Y: {macro.dgs10?.toFixed(3) ?? '—'}%
+            </div>
+          )}
+
+          <NavLink to="/macro" style={{ display: 'block', marginTop: 10, fontSize: 'var(--xs)', color: 'var(--kt-gold)', textDecoration: 'none', fontWeight: 600 }}>
+            Full Outlook →
+          </NavLink>
+        </div>
+
+        {/* Open Positions */}
+        <div className="kt-card kt-card-pad">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Shield size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Open Positions</span>
+            <span style={{
+              marginLeft: 'auto', padding: '2px 8px', borderRadius: 4,
+              fontSize: 'var(--xs)', fontWeight: 700, fontFamily: 'var(--font-mono)',
+              background: 'rgba(245,158,11,.12)', color: 'var(--kt-gold)',
+            }}>
+              {activeTrades.length}
+            </span>
+          </div>
+
+          {activeTrades.length === 0 ? (
+            <div style={{ padding: 20, textAlign: 'center' }}>
+              <p style={{ color: 'var(--kt-muted)', fontSize: 'var(--xs)', margin: 0 }}>No active trades</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="kt-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Dir</th>
+                    <th>Entry</th>
+                    <th>SL</th>
+                    <th>TP1</th>
+                    <th>Lot</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeTrades.slice(0, 5).map((t: any) => (
+                    <tr key={t.id}>
+                      <td style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{t.symbol}</td>
+                      <td><span className={t.direction === 'long' ? 'badge-bull' : 'badge-bear'}>{t.direction.toUpperCase()}</span></td>
+                      <td style={{ fontFamily: 'var(--font-mono)' }}>{t.entry_price}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--kt-dn)' }}>{t.sl ?? '—'}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--kt-up)' }}>{t.tp1 ?? '—'}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)' }}>{t.lot_size}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <NavLink to="/portfolio" style={{ display: 'block', marginTop: 10, fontSize: 'var(--xs)', color: 'var(--kt-gold)', textDecoration: 'none', fontWeight: 600 }}>
+            Full Trade Manager →
+          </NavLink>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════
+          MODULE GRID (Quick Nav)
+          ═══════════════════════════════════════════════════ */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <Zap size={16} style={{ color: 'var(--kt-gold)' }} />
+          <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Quick Nav</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
+          {[
+            { code: 'SMC', to: '/decision', title: 'SMC Engine' },
+            { code: 'MKT', to: '/market', title: 'Market' },
+            { code: 'MAC', to: '/macro', title: 'Macro' },
+            { code: 'CHT', to: '/chart', title: 'Chart Lab' },
+            { code: 'SCN', to: '/scanner', title: 'Scanner' },
+            { code: 'JRN', to: '/journal', title: 'Journal' },
+            { code: 'AI', to: '/ai', title: 'AI Assistant' },
+            { code: 'RTE', to: '/rates', title: 'Rates' },
+          ].map(m => (
+            <NavLink key={m.code} to={m.to} style={{
+              padding: '10px 14px', borderRadius: 8,
+              border: '1px solid var(--kt-border)',
+              textDecoration: 'none', color: 'var(--kt-text)',
+              transition: 'border-color .15s',
+            }}>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{m.code}</div>
+              <div style={{ fontSize: 'var(--sm)', fontWeight: 600 }}>{m.title}</div>
             </NavLink>
           ))}
         </div>
-      </section>
-
-      <section className="kt-section">
-        <div className="kt-section-head">
-          <div>
-            <h2>Daily Research.</h2>
-            <p>Primary bias and headline context for active session.</p>
-          </div>
-          <span className="kt-pill">Auto Refresh</span>
-        </div>
-        <div className="kt-feature-grid">
-          {(mainPairs.length ? mainPairs : []).map((pair: any) => (
-            <div className="kt-feature" key={pair.symbol}>
-              <div className="code">{pair.symbol}</div>
-              <h3><BiasBadge bias={pair.bias} /> <span style={{ marginLeft: 8 }}>{pair.confidence}%</span></h3>
-              <p>{(pair.signals ?? ['Waiting for BOS / CHoCH confirmation']).slice(0, 2).join(' · ')}</p>
-            </div>
-          ))}
-          <div className="kt-feature">
-            <div className="code">MACRO</div>
-            <h3>Macro View</h3>
-            <p>Fed & ECB hawkish. Gold sensitive to real yield, USD, and geopolitical risk premium.</p>
-          </div>
-        </div>
-      </section>
-
-      {newsItems.length > 0 && (
-        <section className="kt-section">
-          <div className="kt-section-head">
-            <div>
-              <h2>AI Context Headlines.</h2>
-              <p>Latest market headlines for session awareness.</p>
-            </div>
-          </div>
-          <div className="kt-card">
-            {newsItems.map((item: any, i: number) => (
-              <a className="kt-terminal-row" href={item.link} target="_blank" rel="noopener noreferrer" key={i} style={{ padding: '14px 18px' }}>
-                <div className="code">N{String(i + 1).padStart(2, '0')}</div>
-                <div>
-                  <b>{item.title}</b><br />
-                  <span>{item.source} · {item.time}</span>
-                </div>
-                <em>↗</em>
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
+      </div>
     </div>
   )
 }

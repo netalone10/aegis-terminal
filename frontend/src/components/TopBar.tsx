@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import { api } from '../lib/api'
-import { ChevronDown, ChevronRight, Menu, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Menu, X, Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2 } from 'lucide-react'
 import { useState } from 'react'
 
 const STATIC_TICKER = [
@@ -15,44 +15,43 @@ const STATIC_TICKER = [
 type NavItem = { to: string; label: string; icon: LucideIcon }
 type NavGroup = { label: string; items: NavItem[] }
 
-function groupNavItems(items: NavItem[]): NavGroup[] {
-  const groups: NavGroup[] = [
-    {
-      label: 'TRADING',
-      items: items.filter(i =>
-        ['/terminal', '/plan', '/decision', '/confluence', '/screener', '/risk', '/killzone', '/trades'].includes(i.to)
-      ),
-    },
-    {
-      label: 'MARKET',
-      items: items.filter(i =>
-        ['/market', '/calendar', '/sentiment', '/sessions', '/rates', '/macro'].includes(i.to)
-      ),
-    },
-    {
-      label: 'TOOLS',
-      items: items.filter(i =>
-        ['/structure', '/correlation', '/chart', '/narrative', '/scanner', '/backtest', '/journal'].includes(i.to)
-      ),
-    },
-    {
-      label: 'RESEARCH',
-      items: items.filter(i =>
-        ['/central-bank', '/regime', '/weekly', '/archive', '/session-report'].includes(i.to)
-      ),
-    },
-    {
-      label: 'AI',
-      items: items.filter(i => ['/ai'].includes(i.to)),
-    },
-  ]
-  return groups.filter(g => g.items.length > 0)
-}
+const NEW_NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'CORE',
+    items: [
+      { to: '/terminal', label: 'Dashboard', icon: Home },
+      { to: '/chart', label: 'Charts', icon: CandlestickChart },
+    ],
+  },
+  {
+    label: 'ANALYSIS',
+    items: [
+      { to: '/smc', label: 'SMC', icon: Crosshair },
+      { to: '/killzone', label: 'Kill Zone', icon: Timer },
+      { to: '/screening', label: 'Screening', icon: ScanLine },
+    ],
+  },
+  {
+    label: 'DATA',
+    items: [
+      { to: '/calendar', label: 'Calendar', icon: Calendar },
+      { to: '/rates', label: 'Rates', icon: DollarSign },
+      { to: '/news', label: 'News', icon: Newspaper },
+      { to: '/research', label: 'Research', icon: Building2 },
+    ],
+  },
+  {
+    label: 'JOURNAL',
+    items: [
+      { to: '/journal', label: 'Journal', icon: BookOpen },
+    ],
+  },
+]
 
-export default function TopBar({ navItems }: { navItems: NavItem[] }) {
+export default function TopBar() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-    TRADING: true, MARKET: true, TOOLS: true, AI: true,
+    CORE: true, ANALYSIS: true, DATA: true, JOURNAL: true,
   })
 
   const { data: tickerData } = useQuery<any>({
@@ -78,8 +77,6 @@ export default function TopBar({ navItems }: { navItems: NavItem[] }) {
     : STATIC_TICKER
 
   const doubled = [...tickerItems, ...tickerItems]
-  const homeItem = navItems.find(i => i.to === '/')
-  const groups = groupNavItems(navItems)
 
   const toggleGroup = (label: string) => {
     setExpandedGroups(prev => ({ ...prev, [label]: !prev[label] }))
@@ -148,26 +145,25 @@ export default function TopBar({ navItems }: { navItems: NavItem[] }) {
           </button>
         </div>
 
-        {/* Home */}
-        {homeItem && (
-          <NavLink
-            to="/" end
-            onClick={() => setSidebarOpen(false)}
-            style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '11px 16px', textDecoration: 'none', fontWeight: 600, fontSize: 'var(--sm)',
-              color: isActive ? 'var(--kt-gold)' : 'var(--kt-text)',
-              background: isActive ? 'rgba(255,191,0,0.06)' : 'transparent',
-              borderLeft: isActive ? '2px solid var(--kt-gold)' : '2px solid transparent',
-            })}
-          >
-            <homeItem.icon size={15} />
-            <span>HOME</span>
-          </NavLink>
-        )}
+        {/* Home link */}
+        <NavLink
+          to="/"
+          end
+          onClick={() => setSidebarOpen(false)}
+          style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '11px 16px', textDecoration: 'none', fontWeight: 600, fontSize: 'var(--sm)',
+            color: isActive ? 'var(--kt-gold)' : 'var(--kt-text)',
+            background: isActive ? 'rgba(255,191,0,0.06)' : 'transparent',
+            borderLeft: isActive ? '2px solid var(--kt-gold)' : '2px solid transparent',
+          })}
+        >
+          <Home size={15} />
+          <span>HOME</span>
+        </NavLink>
 
-        {/* Grouped nav */}
-        {groups.map(group => (
+        {/* Grouped nav — 10 pages */}
+        {NEW_NAV_GROUPS.map(group => (
           <div key={group.label}>
             <button
               onClick={() => toggleGroup(group.label)}

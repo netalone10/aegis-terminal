@@ -1,52 +1,80 @@
 import { NavLink } from 'react-router-dom'
-import { Home, BarChart3, Crosshair, Globe, BookOpen, ScanLine, CandlestickChart, Briefcase, Bot, DollarSign, FileText, ScrollText, Calendar } from 'lucide-react'
+import { Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2 } from 'lucide-react'
 
-const navItems = [
-  { to: '/', label: 'Home', icon: Home },
-  { to: '/market', label: 'Market', icon: BarChart3 },
-  { to: '/decision', label: 'SMC', icon: Crosshair },
-  { to: '/chart', label: 'Chart', icon: CandlestickChart },
-  { to: '/narrative', label: 'Narrative', icon: ScrollText },
-  { to: '/calendar', label: 'Calendar', icon: Calendar },
-  { to: '/macro', label: 'Macro', icon: Globe },
-  { to: '/journal', label: 'Journal', icon: BookOpen },
-  { to: '/scanner', label: 'Scanner', icon: ScanLine },
-  { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
-  { to: '/session-report', label: 'Report', icon: FileText },
-  { to: '/ai', label: 'AI', icon: Bot },
-  { to: '/rates', label: 'Rates', icon: DollarSign },
+const navSections = [
+  {
+    label: 'CORE',
+    items: [
+      { to: '/terminal', label: 'Dashboard', icon: Home },
+      { to: '/chart', label: 'Charts', icon: CandlestickChart },
+    ],
+  },
+  {
+    label: 'ANALYSIS',
+    items: [
+      { to: '/smc', label: 'SMC', icon: Crosshair },
+      { to: '/killzone', label: 'Kill Zone', icon: Timer },
+      { to: '/screening', label: 'Screening', icon: ScanLine },
+    ],
+  },
+  {
+    label: 'DATA',
+    items: [
+      { to: '/calendar', label: 'Calendar', icon: Calendar },
+      { to: '/rates', label: 'Rates', icon: DollarSign },
+      { to: '/news', label: 'News', icon: Newspaper },
+      { to: '/research', label: 'Research', icon: Building2 },
+    ],
+  },
+  {
+    label: 'JOURNAL',
+    items: [
+      { to: '/journal', label: 'Journal', icon: BookOpen },
+    ],
+  },
 ]
 
 export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-surface-deep border-r border-hairline flex flex-col z-50 max-md:hidden">
+      {/* Logo */}
       <div className="h-14 flex items-center px-5 border-b border-hairline">
         <span className="text-primary font-mono font-bold text-lg tracking-tight">AEGIS</span>
       </div>
 
-      <nav className="flex-1 py-3 px-3 space-y-0.5 overflow-y-auto">
-        {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-light transition-colors ${
-                isActive
-                  ? 'bg-primary-bg text-primary-hover'
-                  : 'text-muted hover:text-ink hover:bg-surface-hover'
-              }`
-            }
-          >
-            <Icon size={16} />
-            <span>{label}</span>
-          </NavLink>
+      {/* Navigation */}
+      <nav className="flex-1 py-3 px-3 space-y-4 overflow-y-auto">
+        {navSections.map(section => (
+          <div key={section.label}>
+            <div className="px-3 mb-1 text-[10px] font-mono text-muted uppercase tracking-wider">
+              {section.label}
+            </div>
+            <div className="space-y-0.5">
+              {section.items.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-light transition-colors ${
+                      isActive
+                        ? 'bg-primary-bg text-primary-hover'
+                        : 'text-muted hover:text-ink hover:bg-surface-hover'
+                    }`
+                  }
+                >
+                  <Icon size={16} />
+                  <span>{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 
+      {/* Footer */}
       <div className="px-5 py-4 border-t border-hairline space-y-1">
-        <div className="text-[10px] text-muted font-mono">v0.2.0</div>
-        <div className="text-[10px] text-muted font-mono">Data via TradingView</div>
+        <div className="text-[10px] text-muted font-mono">v0.3.0</div>
+        <div className="text-[10px] text-muted font-mono">MT5 + TradingView</div>
       </div>
     </aside>
   )
