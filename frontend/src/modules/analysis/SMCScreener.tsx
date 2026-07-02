@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import {
@@ -401,7 +401,6 @@ export default function SMCScreener() {
   const [sortBy, setSortBy] = useState<'score' | 'symbol' | 'rr' | 'confidence'>('score')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<BatchEntry[]>({
     queryKey: ['smc-batch'],
@@ -446,15 +445,6 @@ export default function SMCScreener() {
     ? Math.round(enriched.reduce((sum, e) => sum + e.score.total, 0) / enriched.length)
     : 0
 
-  const toggleSort = (col: typeof sortBy) => {
-    if (sortBy === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortBy(col); setSortDir('desc') }
-  }
-
-  const SortIndicator = ({ col }: { col: typeof sortBy }) => {
-    if (sortBy !== col) return <ArrowUpDown size={10} style={{ color: 'var(--kt-dim)', marginLeft: 3 }} />
-    return <ArrowUpDown size={10} style={{ color: 'var(--kt-gold)', marginLeft: 3 }} />
-  }
 
   const biasFilters: Array<{ key: typeof biasFilter; label: string; icon?: React.ReactNode }> = [
     { key: 'all', label: 'ALL' },

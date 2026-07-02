@@ -175,12 +175,12 @@ function PairSidebar({
   pairs: readonly string[]
   selected: string
   onSelect: (p: string) => void
-  dataMap: Map<string, SMCData>
+  dataMap: Record<string, SMCData>
 }) {
   return (
     <div className="flex flex-col gap-1">
       {pairs.map(pair => {
-        const data = dataMap.get(pair)
+        const data = dataMap[pair]
         const isSelected = pair === selected
         const bull = data ? isBullishStructure(data) : null
 
@@ -453,7 +453,6 @@ function PriceLadder({ data, pair }: { data: SMCData; pair: string }) {
           {/* Structure points (HH/HL/LH/LL annotations) */}
           {structurePoints.map((pt, i) => {
             const top = toPct(pt.price)
-            const isHigh = pt.type === 'HH' || pt.type === 'LH' || pt.type === 'sw_high'
             const isStruct = pt.type === 'HH' || pt.type === 'HL' || pt.type === 'LH' || pt.type === 'LL'
             if (!isStruct) return null
 
@@ -592,7 +591,7 @@ export default function StructureMap() {
 
   // Build lookup map
   const dataMap = useMemo(() => {
-    const map = new Map<string, SMCData>()
+    const map: Record<string, any> = {}
     if (smcData) {
       for (const d of smcData) {
         map.set(d.symbol, d)
@@ -602,7 +601,7 @@ export default function StructureMap() {
   }, [smcData])
 
   const selectedData = useMemo(() => {
-    return dataMap.get(selectedPair) ?? null
+    return dataMap[selectedPair] ?? null
   }, [dataMap, selectedPair])
 
   const isLive = !!smcData && !error
