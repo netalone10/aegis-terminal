@@ -12,6 +12,8 @@ import Rates from './modules/analysis/Rates'
 import HeadlineNews from './modules/analysis/HeadlineNews'
 import Research from './modules/analysis/Research'
 import Journal from './modules/analysis/Journal'
+import Market from './modules/market/Market'
+import Portfolio from './modules/portfolio/Portfolio'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +44,8 @@ function AppShell() {
             <Route path="/news" element={<HeadlineNews />} />
             <Route path="/research" element={<Research />} />
             <Route path="/journal" element={<Journal />} />
+            <Route path="/market" element={<Market />} />
+            <Route path="/portfolio" element={<Portfolio />} />
           </Routes>
         </main>
         <footer style={{

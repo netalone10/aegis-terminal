@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2 } from 'lucide-react'
+import { Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase } from 'lucide-react'
 
 const navSections = [
   {
@@ -30,6 +30,12 @@ const navSections = [
     label: 'JOURNAL',
     items: [
       { to: '/journal', label: 'Journal', icon: BookOpen },
+    ],
+  },
+  {
+    label: 'PORTFOLIO',
+    items: [
+      { to: '/portfolio', label: 'Trade Manager', icon: Briefcase },
     ],
   },
 ]
