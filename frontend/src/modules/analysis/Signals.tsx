@@ -59,6 +59,28 @@ interface Signal {
   }
   setups: Setup[]
   timestamp: number
+  reasoning?: {
+    summary: string
+    structure: string
+    candlePattern?: string
+    multiTf: string
+    zoneNote: string
+  }
+}
+
+interface SignalHistory {
+  id: number
+  symbol: string
+  bias: string
+  confidence: number
+  price: number
+  entry: number
+  sl: number
+  tp: number
+  rr: number
+  result: string
+  reason: string
+  created_at: string
 }
 
 const PAIRS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY']
@@ -83,14 +105,36 @@ function formatTime(ts: number) {
   return new Date(ts * 1000).toLocaleString('id-ID', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
+function timeAgo(ts: number) {
+  const diff = Math.floor(Date.now() / 1000) - ts
+  if (diff < 5) return 'just now'
+  if (diff < 60) return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  return `${Math.floor(diff / 3600)}h ago`
+}
+
+function resultColor(result: string) {
+  if (result === 'hit_tp') return 'var(--kt-up)'
+  if (result === 'hit_sl') return 'var(--kt-dn)'
+  if (result === 'open') return 'var(--kt-gold)'
+  return 'var(--kt-muted)'
+}
+
 export default function Signals() {
   const [symbol, setSymbol] = useState('XAUUSD')
 
-  const { data: signal, isLoading } = useQuery<Signal>({
+  const { data: signal, isLoading, dataUpdatedAt } = useQuery<Signal>({
     queryKey: ['signal', symbol],
     queryFn: () => api(`/api/signals/${symbol}`),
     refetchInterval: 10_000,
     retry: 1,
+  })
+
+  const { data: history = [] } = useQuery<SignalHistory[]>({
+    queryKey: ['signal-history', symbol],
+    queryFn: () => api(`/api/signals/history/${symbol}?limit=20`),
+    refetchInterval: 30_000,
+    retry: false,
   })
 
   return (
@@ -118,8 +162,13 @@ export default function Signals() {
               {p}
             </button>
           ))}
-          <span style={{ marginLeft: 'auto', color: 'var(--kt-dim)', fontSize: 'var(--xs)' }}>
-            Auto-refresh 10s
+          <span style={{ marginLeft: 'auto', color: 'var(--kt-dim)', fontSize: 'var(--xs)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {dataUpdatedAt && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#46c97f', animation: 'pulse-dot 2s infinite' }} />
+                Updated {timeAgo(Math.floor(dataUpdatedAt / 1000))}
+              </span>
+            )}
           </span>
         </div>
       </div>
@@ -340,6 +389,101 @@ export default function Signals() {
               ))}
             </div>
           </div>
+
+          {/* ═══ REASONING ═══ */}
+          {signal.reasoning && (
+            <div className="kt-card">
+              <div className="kt-card-pad">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <Target size={16} style={{ color: 'var(--kt-gold)' }} />
+                  <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Reasoning</span>
+                </div>
+
+                {/* Summary */}
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(245,158,11,.06)', borderLeft: '3px solid var(--kt-gold)', marginBottom: 12 }}>
+                  <div style={{ fontSize: 'var(--sm)', color: 'var(--kt-text)', lineHeight: 1.5 }}>
+                    {signal.reasoning.summary}
+                  </div>
+                </div>
+
+                {/* Detail Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                  <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)' }}>
+                    <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Structure</div>
+                    <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>{signal.reasoning.structure}</div>
+                  </div>
+                  <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)' }}>
+                    <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Multi-TF</div>
+                    <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>{signal.reasoning.multiTf}</div>
+                  </div>
+                  <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)' }}>
+                    <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Zone</div>
+                    <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>{signal.reasoning.zoneNote}</div>
+                  </div>
+                  {signal.reasoning.candlePattern && (
+                    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)' }}>
+                      <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Candle Pattern</div>
+                      <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>{signal.reasoning.candlePattern}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ═══ SIGNAL HISTORY ═══ */}
+          {history.length > 0 && (
+            <div className="kt-card">
+              <div className="kt-card-pad">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <Clock size={16} style={{ color: 'var(--kt-gold)' }} />
+                  <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Signal History</span>
+                  <span className="kt-tag" style={{ fontSize: 9, marginLeft: 'auto' }}>{history.length} signals</span>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="kt-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: 'left' }}>Time</th>
+                        <th style={{ textAlign: 'left' }}>Bias</th>
+                        <th style={{ textAlign: 'right' }}>Price</th>
+                        <th style={{ textAlign: 'right' }}>Entry</th>
+                        <th style={{ textAlign: 'right' }}>SL</th>
+                        <th style={{ textAlign: 'right' }}>TP</th>
+                        <th style={{ textAlign: 'right' }}>R:R</th>
+                        <th style={{ textAlign: 'center' }}>Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((h) => (
+                        <tr key={h.id}>
+                          <td style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
+                            {new Date(h.created_at).toLocaleString('id-ID', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
+                          </td>
+                          <td>
+                            <span className={h.bias === 'bullish' ? 'badge-bull' : h.bias === 'bearish' ? 'badge-bear' : 'kt-tag'} style={{ fontSize: 9 }}>
+                              {h.bias.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)' }}>{formatPrice(h.price)}</td>
+                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)' }}>{formatPrice(h.entry)}</td>
+                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)', color: 'var(--kt-dn)' }}>{formatPrice(h.sl)}</td>
+                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)', color: 'var(--kt-up)' }}>{formatPrice(h.tp)}</td>
+                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)' }}>{h.rr}:1</td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span style={{ fontSize: 9, fontWeight: 600, color: resultColor(h.result), textTransform: 'uppercase' }}>
+                              {h.result.replace('_', ' ')}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Disclaimer */}
           <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(245,158,11,.04)', borderLeft: '3px solid var(--kt-gold)', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>

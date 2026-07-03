@@ -38,6 +38,14 @@ interface OrderBlock {
   time: number;
 }
 
+interface Reasoning {
+  summary: string;
+  structure: string;
+  candlePattern?: string;
+  multiTf: string;
+  zoneNote: string;
+}
+
 interface Signal {
   symbol: string;
   bias: 'bullish' | 'bearish' | 'neutral';
@@ -61,6 +69,7 @@ interface Signal {
     equilibrium: number;
   };
   setups: Setup[];
+  reasoning: Reasoning;
   timestamp: number;
 }
 
@@ -75,7 +84,8 @@ interface Setup {
   status: 'active' | 'waiting';
 }
 
-// Detect swing points
+// ── Swing Detection ──────────────────────────────────────────────
+
 function detectSwings(candles: Candle[]): SwingPoint[] {
   const swings: SwingPoint[] = [];
   for (let i = 2; i < candles.length - 2; i++) {
@@ -111,7 +121,111 @@ function detectSwings(candles: Candle[]): SwingPoint[] {
   return classified;
 }
 
-// Detect FVGs
+// ── Consecutive Structure Counting ───────────────────────────────
+
+function countConsecutiveStructure(swings: SwingPoint[]): {
+  consecutiveHH: number;
+  consecutiveHL: number;
+  consecutiveLH: number;
+  consecutiveLL: number;
+  lastHLSwing?: SwingPoint;
+  lastLHSwing?: SwingPoint;
+  pattern: string;
+} {
+  const recent = swings.slice(-10);
+  let consecutiveHH = 0;
+  let consecutiveHL = 0;
+  let consecutiveLH = 0;
+  let consecutiveLL = 0;
+  let lastHLSwing: SwingPoint | undefined;
+  let lastLHSwing: SwingPoint | undefined;
+
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const s = recent[i];
+    if (s.type === 'HH') consecutiveHH++;
+    else if (s.type === 'HL') {
+      consecutiveHL++;
+      if (!lastHLSwing) lastHLSwing = s;
+    }
+    else if (s.type === 'LH') consecutiveLH++;
+    else if (s.type === 'LL') {
+      consecutiveLL++;
+      if (!lastLHSwing) lastLHSwing = s;
+    }
+  }
+
+  let pattern = 'Choppy / mixed structure';
+  if (consecutiveHH >= 2 && consecutiveHL >= 2) {
+    pattern = `${consecutiveHH} consecutive HH with ${consecutiveHL} HL`;
+    if (lastHLSwing) pattern += ` — last HL at ${lastHLSwing.price.toFixed(0)} holding`;
+  } else if (consecutiveLH >= 2 && consecutiveLL >= 2) {
+    pattern = `${consecutiveLH} consecutive LH with ${consecutiveLL} LL`;
+    if (lastLHSwing) pattern += ` — last LH at ${lastLHSwing.price.toFixed(0)} broken`;
+  }
+
+  return { consecutiveHH, consecutiveHL, consecutiveLH, consecutiveLL, lastHLSwing, lastLHSwing, pattern };
+}
+
+// ── Candle Pattern Detection ─────────────────────────────────────
+
+function detectCandlePatterns(candles: Candle[]): string | undefined {
+  if (candles.length < 3) return undefined;
+  const recent = candles.slice(-3);
+  const last = recent[recent.length - 1];
+  const prev = recent[recent.length - 2];
+
+  const body = Math.abs(last.close - last.open);
+  const upperWick = last.high - Math.max(last.open, last.close);
+  const lowerWick = Math.min(last.open, last.close) - last.low;
+  const totalRange = last.high - last.low;
+
+  // Engulfing
+  const prevBody = Math.abs(prev.close - prev.open);
+  if (body > prevBody * 1.5 && totalRange > 0) {
+    if (last.close > last.open && prev.close < prev.open) {
+      return 'Bullish engulfing pattern — strong reversal signal at current zone';
+    }
+    if (last.close < last.open && prev.close > prev.open) {
+      return 'Bearish engulfing pattern — strong reversal signal at current zone';
+    }
+  }
+
+  // Pin bar / hammer
+  if (totalRange > 0 && body < totalRange * 0.25) {
+    if (lowerWick > body * 2 && upperWick < body * 0.5) {
+      return 'Hammer / pin bar rejection — buyers defended lower level';
+    }
+    if (upperWick > body * 2 && lowerWick < body * 0.5) {
+      return 'Shooting star / inverted pin — sellers rejected higher prices';
+    }
+  }
+
+  // Doji
+  if (totalRange > 0 && body < totalRange * 0.05) {
+    return 'Doji — indecision candle, wait for confirmation';
+  }
+
+  return undefined;
+}
+
+// ── Multi-TF Bias Check ──────────────────────────────────────────
+
+function getTFBias(candles: Candle[]): 'bullish' | 'bearish' | 'neutral' {
+  if (candles.length < 20) return 'neutral';
+  const swings = detectSwings(candles);
+  const recent = swings.slice(-8);
+  const hh = recent.filter(s => s.type === 'HH').length;
+  const hl = recent.filter(s => s.type === 'HL').length;
+  const lh = recent.filter(s => s.type === 'LH').length;
+  const ll = recent.filter(s => s.type === 'LL').length;
+
+  if (hh + hl > lh + ll) return 'bullish';
+  if (lh + ll > hh + hl) return 'bearish';
+  return 'neutral';
+}
+
+// ── FVG Detection ────────────────────────────────────────────────
+
 function detectFVGs(candles: Candle[]): FVG[] {
   const fvgs: FVG[] = [];
   for (let i = 2; i < candles.length; i++) {
@@ -137,7 +251,8 @@ function detectFVGs(candles: Candle[]): FVG[] {
   return fvgs;
 }
 
-// Detect Order Blocks
+// ── Order Block Detection ────────────────────────────────────────
+
 function detectOBs(candles: Candle[]): OrderBlock[] {
   const obs: OrderBlock[] = [];
   for (let i = 2; i < candles.length; i++) {
@@ -157,7 +272,8 @@ function detectOBs(candles: Candle[]): OrderBlock[] {
   return obs;
 }
 
-// Kill zone check
+// ── Kill Zone Check ──────────────────────────────────────────────
+
 function getKillZone(): string {
   const now = new Date();
   const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -168,7 +284,8 @@ function getKillZone(): string {
   return 'No Active Kill Zone';
 }
 
-// Premium/Discount zone
+// ── Premium / Discount Zone ──────────────────────────────────────
+
 function getZone(price: number, high: number, low: number): 'premium' | 'discount' | 'equilibrium' {
   const mid = (high + low) / 2;
   const range = high - low;
@@ -177,7 +294,8 @@ function getZone(price: number, high: number, low: number): 'premium' | 'discoun
   return 'equilibrium';
 }
 
-// Generate setups
+// ── Generate Setups ──────────────────────────────────────────────
+
 function generateSetups(
   bias: string,
   price: number,
@@ -263,7 +381,72 @@ function generateSetups(
   return setups;
 }
 
-// ── Main Endpoint ────────────────────────────────────────────────
+// ── Build Reasoning ──────────────────────────────────────────────
+
+function buildReasoning(
+  bias: 'bullish' | 'bearish' | 'neutral',
+  confidence: number,
+  structInfo: ReturnType<typeof countConsecutiveStructure>,
+  candlePattern: string | undefined,
+  h4Bias: 'bullish' | 'bearish' | 'neutral',
+  d1Bias: 'bullish' | 'bearish' | 'neutral',
+  zone: 'premium' | 'discount' | 'equilibrium',
+  setups: Setup[],
+): Reasoning {
+  // Structure string
+  const structure = bias === 'bullish'
+    ? `Bullish: ${structInfo.pattern}`
+    : bias === 'bearish'
+    ? `Bearish: ${structInfo.pattern}`
+    : `Neutral: ${structInfo.pattern}`;
+
+  // Multi-TF alignment
+  const tfBiasMap = { bullish: 'Bullish', bearish: 'Bearish', neutral: 'Neutral' };
+  let multiTf: string;
+  const aligned = (bias === h4Bias && h4Bias === d1Bias && bias !== 'neutral');
+  if (aligned) {
+    multiTf = `H4 ${tfBiasMap[h4Bias]} + D1 ${tfBiasMap[d1Bias]} = fully aligned with H1`;
+  } else {
+    const mismatches: string[] = [];
+    if (bias !== h4Bias && h4Bias !== 'neutral') mismatches.push(`H4 ${tfBiasMap[h4Bias]}`);
+    if (bias !== d1Bias && d1Bias !== 'neutral') mismatches.push(`D1 ${tfBiasMap[d1Bias]}`);
+    multiTf = mismatches.length > 0
+      ? `Mismatches: ${mismatches.join(', ')} vs H1 ${tfBiasMap[bias]}`
+      : `H4 ${tfBiasMap[h4Bias]} + D1 ${tfBiasMap[d1Bias]} — no strong alignment`;
+  }
+
+  // Zone note
+  let zoneNote: string;
+  if (zone === 'premium') {
+    zoneNote = 'Price in premium zone — longs have worse R:R, shorts favored here';
+  } else if (zone === 'discount') {
+    zoneNote = 'Price in discount zone — shorts have worse R:R, longs favored here';
+  } else {
+    zoneNote = 'Price at equilibrium — both directions viable with equal R:R context';
+  }
+
+  // Summary
+  const activeSetups = setups.filter(s => s.status === 'active');
+  const setupSummary = activeSetups.length > 0
+    ? `${activeSetups.length} active setup(s): ${activeSetups.map(s => `${s.type} @ ${s.entry.toFixed(0)} R:R ${s.rr}`).join(', ')}`
+    : 'No active setups — waiting for price to reach zones';
+
+  const summaryParts: string[] = [];
+  summaryParts.push(`${confidence}% confidence ${bias} bias`);
+  summaryParts.push(setupSummary);
+  if (aligned) summaryParts.push('Multi-TF alignment confirms');
+  if (candlePattern) summaryParts.push(candlePattern);
+
+  return {
+    summary: summaryParts.join('. ') + '.',
+    structure,
+    candlePattern,
+    multiTf,
+    zoneNote,
+  };
+}
+
+// ── Main Signal Endpoint ─────────────────────────────────────────
 
 signalsRoutes.get('/:symbol', async (c) => {
   const rawSymbol = c.req.param('symbol') ?? 'XAUUSD';
@@ -285,6 +468,8 @@ signalsRoutes.get('/:symbol', async (c) => {
 
     // Analyze H1 (primary timeframe)
     const h1Candles: Candle[] = h1Data?.candles ?? [];
+    const h4Candles: Candle[] = h4Data?.candles ?? [];
+    const d1Candles: Candle[] = d1Data?.candles ?? [];
     const swings = detectSwings(h1Candles);
     const fvgs = detectFVGs(h1Candles);
     const obs = detectOBs(h1Candles);
@@ -339,6 +524,17 @@ signalsRoutes.get('/:symbol', async (c) => {
     // Generate setups
     const setups = generateSetups(bias, price, swings, fvgs, obs, equilibrium);
 
+    // Enhanced reasoning
+    const structInfo = countConsecutiveStructure(swings);
+    const candlePattern = detectCandlePatterns(h1Candles);
+    const h4Bias = getTFBias(h4Candles);
+    const d1Bias = getTFBias(d1Candles);
+
+    const reasoning = buildReasoning(
+      bias, confidence, structInfo, candlePattern,
+      h4Bias, d1Bias, zone, setups,
+    );
+
     const signal: Signal = {
       symbol,
       bias,
@@ -362,11 +558,134 @@ signalsRoutes.get('/:symbol', async (c) => {
         equilibrium,
       },
       setups,
+      reasoning,
       timestamp: Date.now(),
     };
+
+    // Auto-save signal to D1 (fire-and-forget, don't fail main request)
+    if (setups.length > 0) {
+      c.executionCtx.waitUntil(
+        saveSignalToHistory(c.env.DB, symbol, signal).catch(e =>
+          console.error(`Auto-save signal failed for ${symbol}:`, e)
+        )
+      );
+    }
 
     return c.json({ status: 'ok', data: signal });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
 });
+
+// ── History: Save Signal ─────────────────────────────────────────
+
+signalsRoutes.post('/save', async (c) => {
+  try {
+    const body = await c.req.json<{
+      symbol: string;
+      bias: string;
+      confidence: number;
+      price: number;
+      entry: number;
+      sl: number;
+      tp: number;
+      rr: number;
+      reason: string;
+      confluence: string[];
+    }>();
+
+    const { symbol, bias, confidence, price, entry, sl, tp, rr, reason, confluence } = body;
+
+    if (!symbol || !bias) {
+      return c.json({ error: 'symbol and bias are required' }, 400);
+    }
+
+    const confluenceJson = JSON.stringify(confluence ?? []);
+
+    await c.env.DB.prepare(
+      `INSERT INTO signal_history (symbol, bias, confidence, price, entry, sl, tp, rr, reason, confluence)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(symbol, bias, confidence ?? 0, price ?? 0, entry ?? 0, sl ?? 0, tp ?? 0, rr ?? 0, reason ?? '', confluenceJson).run();
+
+    return c.json({ status: 'saved' });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ── History: Get Past Signals ────────────────────────────────────
+
+signalsRoutes.get('/history/:symbol', async (c) => {
+  try {
+    const symbol = c.req.param('symbol').toUpperCase();
+    const limit = parseInt(c.req.query('limit') ?? '20', 10);
+
+    const { results } = await c.env.DB.prepare(
+      `SELECT * FROM signal_history WHERE symbol = ? ORDER BY created_at DESC LIMIT ?`
+    ).bind(symbol, limit).all();
+
+    return c.json({ status: 'ok', data: results });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ── History: Accuracy Stats ──────────────────────────────────────
+
+signalsRoutes.get('/history/:symbol/stats', async (c) => {
+  try {
+    const symbol = c.req.param('symbol').toUpperCase();
+
+    const { results } = await c.env.DB.prepare(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN result = 'hit_tp' THEN 1 ELSE 0 END) as wins,
+         SUM(CASE WHEN result = 'hit_sl' THEN 1 ELSE 0 END) as losses,
+         ROUND(AVG(rr), 2) as avgRR
+       FROM signal_history
+       WHERE symbol = ? AND result IN ('hit_tp', 'hit_sl')`
+    ).bind(symbol).all();
+
+    const row = results[0] as any;
+    const total = row?.total ?? 0;
+    const wins = row?.wins ?? 0;
+    const losses = row?.losses ?? 0;
+    const avgRR = row?.avgRR ?? 0;
+    const winRate = total > 0 ? Math.round((wins / total) * 100) : 0;
+
+    return c.json({
+      status: 'ok',
+      data: { total, wins, losses, winRate, avgRR },
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ── D1 Auto-Save Helper ──────────────────────────────────────────
+
+async function saveSignalToHistory(db: D1Database, symbol: string, signal: Signal): Promise<void> {
+  const primarySetup = signal.setups[0];
+  if (!primarySetup) return;
+
+  const confluenceJson = JSON.stringify(
+    signal.setups.flatMap(s => s.confluence)
+  );
+  const reasonText = signal.reasoning.summary;
+
+  await db.prepare(
+    `INSERT INTO signal_history (symbol, bias, confidence, price, entry, sl, tp, rr, reason, confluence)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    symbol,
+    signal.bias,
+    signal.confidence,
+    signal.price,
+    primarySetup.entry,
+    primarySetup.sl,
+    primarySetup.tp,
+    primarySetup.rr,
+    reasonText,
+    confluenceJson,
+  ).run();
+}
