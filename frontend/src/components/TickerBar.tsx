@@ -1,15 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 
-const STATIC_TICKER = [
-  { symbol: 'XAU/USD', price: '3,275.00', change: '-0.22%', up: false },
-  { symbol: 'EUR/USD', price: '1.0845', change: '-0.12%', up: false },
-  { symbol: 'GBP/USD', price: '1.2720', change: '+0.08%', up: true },
-  { symbol: 'USD/JPY', price: '159.80', change: '+0.22%', up: true },
-  { symbol: 'USD/IDR', price: '16,234', change: '+0.05%', up: true },
-  { symbol: 'BTC/USD', price: '59,748', change: '-0.14%', up: false },
-]
-
 export default function TickerBar() {
   const { data: tickerData } = useQuery({
     queryKey: ['forex-ticker'],
@@ -19,18 +10,18 @@ export default function TickerBar() {
     retry: false,
   })
 
-  const tickerItems = (tickerData?.data ?? []).length > 0
-    ? (tickerData.data as any[]).map((t: any) => ({
-        symbol: t.symbol,
-        price: typeof t.price === 'number'
-          ? (t.symbol.includes('JPY') || t.symbol.includes('IDR') ? t.price.toFixed(2) : t.price.toFixed(4))
-          : String(t.price ?? '—'),
-        change: typeof t.change === 'number'
-          ? `${t.change >= 0 ? '+' : ''}${t.change.toFixed(2)}%`
-          : String(t.change ?? '0%'),
-        up: typeof t.change === 'number' ? t.change >= 0 : true,
-      }))
-    : STATIC_TICKER
+  const tickerItems = (tickerData?.data ?? []).map((t: any) => ({
+    symbol: t.symbol,
+    price: typeof t.price === 'number'
+      ? (t.symbol.includes('JPY') || t.symbol.includes('IDR') ? t.price.toFixed(2) : t.price.toFixed(4))
+      : String(t.price ?? '—'),
+    change: typeof t.change === 'number'
+      ? `${t.change >= 0 ? '+' : ''}${t.change.toFixed(2)}%`
+      : String(t.change ?? '0%'),
+    up: typeof t.change === 'number' ? t.change >= 0 : true,
+  }))
+
+  if (tickerItems.length === 0) return null
 
   const doubled = [...tickerItems, ...tickerItems]
 
