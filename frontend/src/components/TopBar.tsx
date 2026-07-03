@@ -2,15 +2,8 @@ import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import { api } from '../lib/api'
-import { ChevronDown, ChevronRight, Menu, X, Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Menu, X, Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase, Zap } from 'lucide-react'
 import { useState } from 'react'
-
-const STATIC_TICKER = [
-  { symbol: 'XAU/USD', price: '4,018.00', change: '-1.72%', up: false },
-  { symbol: 'EUR/USD', price: '1.1414', change: '+0.25%', up: true },
-  { symbol: 'GBP/USD', price: '1.3239', change: '+0.34%', up: true },
-  { symbol: 'USD/JPY', price: '161.91', change: '+0.33%', up: true },
-]
 
 type NavItem = { to: string; label: string; icon: LucideIcon }
 type NavGroup = { label: string; items: NavItem[] }
@@ -29,6 +22,7 @@ const NEW_NAV_GROUPS: NavGroup[] = [
       { to: '/smc', label: 'SMC', icon: Crosshair },
       { to: '/killzone', label: 'Kill Zone', icon: Timer },
       { to: '/screening', label: 'Screening', icon: ScanLine },
+      { to: '/signals', label: 'Signals', icon: Zap },
     ],
   },
   {
@@ -44,6 +38,13 @@ const NEW_NAV_GROUPS: NavGroup[] = [
     label: 'JOURNAL',
     items: [
       { to: '/journal', label: 'Journal', icon: BookOpen },
+    ],
+  },
+  {
+    label: 'PORTFOLIO',
+    items: [
+      { to: '/portfolio', label: 'Trade Manager', icon: Briefcase },
+      { to: '/market', label: 'Market', icon: CandlestickChart },
     ],
   },
 ]
@@ -74,7 +75,7 @@ export default function TopBar() {
           : String(t.change ?? '0%'),
         up: typeof t.change === 'number' ? t.change >= 0 : true,
       }))
-    : STATIC_TICKER
+    : []
 
   const doubled = [...tickerItems, ...tickerItems]
 
