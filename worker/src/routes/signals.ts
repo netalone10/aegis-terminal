@@ -668,6 +668,24 @@ async function saveSignalToHistory(db: D1Database, symbol: string, signal: Signa
   const primarySetup = signal.setups[0];
   if (!primarySetup) return;
 
+  // Dedup: skip if same bias + entry + sl + tp saved within last hour
+  const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
+  const dup = await db.prepare(
+    `SELECT 1 FROM signal_history
+     WHERE symbol = ? AND bias = ? AND entry = ? AND sl = ? AND tp = ?
+       AND created_at > ?
+     LIMIT 1`
+  ).bind(
+    symbol,
+    signal.bias,
+    primarySetup.entry,
+    primarySetup.sl,
+    primarySetup.tp,
+    oneHourAgo,
+  ).first();
+
+  if (dup) return; // same signal exists in last hour, skip
+
   const confluenceJson = JSON.stringify(
     signal.setups.flatMap(s => s.confluence)
   );
