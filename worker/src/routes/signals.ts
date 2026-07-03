@@ -48,6 +48,7 @@ interface Reasoning {
 
 interface Signal {
   symbol: string;
+  timeframe: string;
   bias: 'bullish' | 'bearish' | 'neutral';
   confidence: number;
   price: number;
@@ -451,6 +452,7 @@ function buildReasoning(
 signalsRoutes.get('/:symbol', async (c) => {
   const rawSymbol = c.req.param('symbol') ?? 'XAUUSD';
   const symbol = rawSymbol.toUpperCase().replace('/', '');
+  const timeframe = (c.req.query('timeframe') ?? 'H1').toUpperCase();
   const cache = new Cache(c.env.AEGIS_CACHE, 30);
 
   try {
@@ -465,6 +467,13 @@ signalsRoutes.get('/:symbol', async (c) => {
 
     const price = priceData?.bid ?? 0;
     const spread = priceData?.spread ?? 0;
+
+    // Lazy result tracking: check open signals for this symbol
+    c.executionCtx.waitUntil(
+      closeOpenSignals(c.env.DB, symbol, price).catch(e =>
+        console.error(`Lazy close failed for ${symbol}:`, e)
+      )
+    );
 
     // Analyze H1 (primary timeframe)
     const h1Candles: Candle[] = h1Data?.candles ?? [];
@@ -537,6 +546,7 @@ signalsRoutes.get('/:symbol', async (c) => {
 
     const signal: Signal = {
       symbol,
+      timeframe,
       bias,
       confidence: Math.min(confidence, 95),
       price,
@@ -565,7 +575,7 @@ signalsRoutes.get('/:symbol', async (c) => {
     // Auto-save signal to D1 (fire-and-forget, don't fail main request)
     if (setups.length > 0) {
       c.executionCtx.waitUntil(
-        saveSignalToHistory(c.env.DB, symbol, signal).catch(e =>
+        saveSignalToHistory(c.env.DB, symbol, signal, timeframe).catch(e =>
           console.error(`Auto-save signal failed for ${symbol}:`, e)
         )
       );
@@ -619,10 +629,20 @@ signalsRoutes.get('/history/:symbol', async (c) => {
   try {
     const symbol = c.req.param('symbol').toUpperCase();
     const limit = parseInt(c.req.query('limit') ?? '20', 10);
+    const timeframe = c.req.query('timeframe')?.toUpperCase();
 
-    const { results } = await c.env.DB.prepare(
-      `SELECT * FROM signal_history WHERE symbol = ? ORDER BY created_at DESC LIMIT ?`
-    ).bind(symbol, limit).all();
+    let query = `SELECT * FROM signal_history WHERE symbol = ?`;
+    const params: any[] = [symbol];
+
+    if (timeframe) {
+      query += ` AND timeframe = ?`;
+      params.push(timeframe);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT ?`;
+    params.push(limit);
+
+    const { results } = await c.env.DB.prepare(query).bind(...params).all();
 
     return c.json({ status: 'ok', data: results });
   } catch (e: any) {
@@ -635,27 +655,110 @@ signalsRoutes.get('/history/:symbol', async (c) => {
 signalsRoutes.get('/history/:symbol/stats', async (c) => {
   try {
     const symbol = c.req.param('symbol').toUpperCase();
+    const timeframe = c.req.query('timeframe')?.toUpperCase();
 
-    const { results } = await c.env.DB.prepare(
-      `SELECT
-         COUNT(*) as total,
-         SUM(CASE WHEN result = 'hit_tp' THEN 1 ELSE 0 END) as wins,
-         SUM(CASE WHEN result = 'hit_sl' THEN 1 ELSE 0 END) as losses,
-         ROUND(AVG(rr), 2) as avgRR
-       FROM signal_history
-       WHERE symbol = ? AND result IN ('hit_tp', 'hit_sl')`
-    ).bind(symbol).all();
+    // Overall stats
+    let query = `
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN result = 'hit_tp' THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN result = 'hit_sl' THEN 1 ELSE 0 END) as losses,
+        SUM(CASE WHEN result = 'open' THEN 1 ELSE 0 END) as open_count,
+        ROUND(AVG(rr), 2) as avgRR
+      FROM signal_history
+      WHERE symbol = ? AND result IN ('hit_tp', 'hit_sl', 'open')`;
+    const params: any[] = [symbol];
 
+    if (timeframe) {
+      query += ` AND timeframe = ?`;
+      params.push(timeframe);
+    }
+
+    const { results } = await c.env.DB.prepare(query).bind(...params).all();
     const row = results[0] as any;
     const total = row?.total ?? 0;
     const wins = row?.wins ?? 0;
     const losses = row?.losses ?? 0;
+    const openCount = row?.open_count ?? 0;
     const avgRR = row?.avgRR ?? 0;
     const winRate = total > 0 ? Math.round((wins / total) * 100) : 0;
 
+    // Per-bias breakdown
+    let biasQuery = `
+      SELECT
+        bias,
+        COUNT(*) as total,
+        SUM(CASE WHEN result = 'hit_tp' THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN result = 'hit_sl' THEN 1 ELSE 0 END) as losses
+      FROM signal_history
+      WHERE symbol = ? AND result IN ('hit_tp', 'hit_sl')`;
+    const biasParams: any[] = [symbol];
+
+    if (timeframe) {
+      biasQuery += ` AND timeframe = ?`;
+      biasParams.push(timeframe);
+    }
+
+    biasQuery += ` GROUP BY bias`;
+
+    const { results: biasResults } = await c.env.DB.prepare(biasQuery).bind(...biasParams).all();
+    const byBias: Record<string, any> = {};
+    for (const bRow of (biasResults || [])) {
+      const b = bRow as any;
+      byBias[b.bias] = {
+        total: b.total,
+        wins: b.wins,
+        losses: b.losses,
+        winRate: b.total > 0 ? Math.round((b.wins / b.total) * 100) : 0,
+      };
+    }
+
+    // Confidence calibration (group by confidence ranges)
+    let calQuery = `
+      SELECT
+        CASE
+          WHEN confidence >= 80 THEN '80-100'
+          WHEN confidence >= 60 THEN '60-79'
+          ELSE 'below-60'
+        END as band,
+        COUNT(*) as total,
+        SUM(CASE WHEN result = 'hit_tp' THEN 1 ELSE 0 END) as wins
+      FROM signal_history
+      WHERE symbol = ? AND result IN ('hit_tp', 'hit_sl')`;
+    const calParams: any[] = [symbol];
+
+    if (timeframe) {
+      calQuery += ` AND timeframe = ?`;
+      calParams.push(timeframe);
+    }
+
+    calQuery += ` GROUP BY band`;
+
+    const { results: calResults } = await c.env.DB.prepare(calQuery).bind(...calParams).all();
+    const calibration: Record<string, any> = {};
+    for (const cRow of (calResults || [])) {
+      const c = cRow as any;
+      calibration[c.band] = {
+        total: c.total,
+        wins: c.wins,
+        actualWinRate: c.total > 0 ? Math.round((c.wins / c.total) * 100) : 0,
+      };
+    }
+
     return c.json({
       status: 'ok',
-      data: { total, wins, losses, winRate, avgRR },
+      data: {
+        total,
+        wins,
+        losses,
+        open: openCount,
+        winRate,
+        avgRR,
+        byBias,
+        calibration,
+        minSignalsForCalibration: 10,
+        ready: total >= 10,
+      },
     });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
@@ -664,7 +767,7 @@ signalsRoutes.get('/history/:symbol/stats', async (c) => {
 
 // ── D1 Auto-Save Helper ──────────────────────────────────────────
 
-async function saveSignalToHistory(db: D1Database, symbol: string, signal: Signal): Promise<void> {
+async function saveSignalToHistory(db: D1Database, symbol: string, signal: Signal, timeframe: string): Promise<void> {
   const primarySetup = signal.setups[0];
   if (!primarySetup) return;
 
@@ -672,7 +775,7 @@ async function saveSignalToHistory(db: D1Database, symbol: string, signal: Signa
   const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
   const dup = await db.prepare(
     `SELECT 1 FROM signal_history
-     WHERE symbol = ? AND bias = ? AND entry = ? AND sl = ? AND tp = ?
+     WHERE symbol = ? AND bias = ? AND entry = ? AND sl = ? AND tp = ? AND timeframe = ?
        AND created_at > ?
      LIMIT 1`
   ).bind(
@@ -681,6 +784,7 @@ async function saveSignalToHistory(db: D1Database, symbol: string, signal: Signa
     primarySetup.entry,
     primarySetup.sl,
     primarySetup.tp,
+    timeframe,
     oneHourAgo,
   ).first();
 
@@ -692,8 +796,8 @@ async function saveSignalToHistory(db: D1Database, symbol: string, signal: Signa
   const reasonText = signal.reasoning.summary;
 
   await db.prepare(
-    `INSERT INTO signal_history (symbol, bias, confidence, price, entry, sl, tp, rr, reason, confluence)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO signal_history (symbol, bias, confidence, price, entry, sl, tp, rr, reason, confluence, timeframe)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     symbol,
     signal.bias,
@@ -705,5 +809,62 @@ async function saveSignalToHistory(db: D1Database, symbol: string, signal: Signa
     primarySetup.rr,
     reasonText,
     confluenceJson,
+    timeframe,
   ).run();
 }
+
+// ── Lazy Result Tracking ───────────────────────────────────────
+
+async function closeOpenSignals(db: D1Database, symbol: string, currentPrice: number): Promise<void> {
+  const { results } = await db.prepare(
+    `SELECT id, entry, sl, tp, bias FROM signal_history WHERE symbol = ? AND result = 'open'`
+  ).bind(symbol).all();
+
+  if (!results || results.length === 0) return;
+
+  const now = new Date().toISOString();
+
+  for (const row of results) {
+    const { id, entry, sl, tp, bias } = row as any;
+    let newResult: string | null = null;
+
+    if (bias === 'bullish') {
+      // Long: TP hit if price >= tp, SL hit if price <= sl
+      if (currentPrice >= tp) newResult = 'hit_tp';
+      else if (currentPrice <= sl) newResult = 'hit_sl';
+    } else if (bias === 'bearish') {
+      // Short: TP hit if price <= tp, SL hit if price >= sl
+      if (currentPrice <= tp) newResult = 'hit_tp';
+      else if (currentPrice >= sl) newResult = 'hit_sl';
+    }
+
+    if (newResult) {
+      await db.prepare(
+        `UPDATE signal_history SET result = ?, closed_at = ? WHERE id = ?`
+      ).bind(newResult, now, id).run();
+    }
+  }
+}
+
+// ── Manual Result Override ─────────────────────────────────────
+
+signalsRoutes.post('/history/:id/result', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'), 10);
+    const body = await c.req.json<{ result: string }>();
+    const validResults = ['open', 'hit_tp', 'hit_sl'];
+
+    if (!validResults.includes(body.result)) {
+      return c.json({ error: `result must be one of: ${validResults.join(', ')}` }, 400);
+    }
+
+    const now = new Date().toISOString();
+    await c.env.DB.prepare(
+      `UPDATE signal_history SET result = ?, closed_at = ? WHERE id = ?`
+    ).bind(body.result, body.result === 'open' ? null : now, id).run();
+
+    return c.json({ status: 'ok', id, result: body.result });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});

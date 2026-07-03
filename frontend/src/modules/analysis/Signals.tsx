@@ -80,10 +80,12 @@ interface SignalHistory {
   rr: number
   result: string
   reason: string
+  timeframe: string
   created_at: string
 }
 
-const PAIRS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY']
+const PAIRS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD']
+const TIMEFRAMES = ['H1', 'H4', 'D1']
 
 function biasIcon(bias: string) {
   if (bias === 'bullish') return <TrendingUp size={14} style={{ color: 'var(--kt-up)' }} />
@@ -122,20 +124,46 @@ function resultColor(result: string) {
 
 export default function Signals() {
   const [symbol, setSymbol] = useState('XAUUSD')
+  const [timeframe, setTimeframe] = useState('H1')
+  const [biasFilter, setBiasFilter] = useState<string>('all')
+  const [resultFilter, setResultFilter] = useState<string>('all')
 
   const { data: signal, isLoading, dataUpdatedAt } = useQuery<Signal>({
-    queryKey: ['signal', symbol],
-    queryFn: () => api(`/api/signals/${symbol}`),
+    queryKey: ['signal', symbol, timeframe],
+    queryFn: () => api(`/api/signals/${symbol}?timeframe=${timeframe}`),
     refetchInterval: 10_000,
     retry: 1,
   })
 
   const { data: history = [] } = useQuery<SignalHistory[]>({
-    queryKey: ['signal-history', symbol, Math.floor(Date.now() / 60_000)],
-    queryFn: () => api(`/api/signals/history/${symbol}?limit=20&_=${Date.now()}`),
+    queryKey: ['signal-history', symbol, timeframe, Math.floor(Date.now() / 60_000)],
+    queryFn: () => api(`/api/signals/history/${symbol}?timeframe=${timeframe}&limit=20&_=${Date.now()}`),
     refetchInterval: 30_000,
     retry: false,
     staleTime: 0,
+  })
+
+  const { data: stats } = useQuery<{
+    total: number
+    wins: number
+    losses: number
+    open: number
+    winRate: number
+    avgRR: number
+    byBias: Record<string, { total: number; wins: number; losses: number; winRate: number }>
+    calibration: Record<string, { total: number; wins: number; actualWinRate: number }>
+    ready: boolean
+  }>({
+    queryKey: ['signal-stats', symbol, timeframe],
+    queryFn: () => api(`/api/signals/history/${symbol}/stats?timeframe=${timeframe}`),
+    refetchInterval: 60_000,
+    retry: false,
+  })
+
+  const filteredHistory = history.filter(h => {
+    if (biasFilter !== 'all' && h.bias !== biasFilter) return false
+    if (resultFilter !== 'all' && h.result !== resultFilter) return false
+    return true
   })
 
   return (
@@ -150,29 +178,107 @@ export default function Signals() {
         </div>
       </div>
 
-      {/* Symbol Selector */}
+      {/* Symbol + Timeframe Selector */}
       <div className="kt-card" style={{ marginBottom: 0 }}>
-        <div className="kt-card-pad" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {PAIRS.map(p => (
-            <button
-              key={p}
-              className={`kt-tag ${symbol === p ? 'gold' : ''}`}
-              onClick={() => setSymbol(p)}
-              style={{ cursor: 'pointer', minWidth: 70, justifyContent: 'center' }}
-            >
-              {p}
-            </button>
-          ))}
-          <span style={{ marginLeft: 'auto', color: 'var(--kt-dim)', fontSize: 'var(--xs)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            {dataUpdatedAt && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#46c97f', animation: 'pulse-dot 2s infinite' }} />
-                Updated {timeAgo(Math.floor(dataUpdatedAt / 1000))}
-              </span>
-            )}
-          </span>
+        <div className="kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {PAIRS.map(p => (
+              <button
+                key={p}
+                className={`kt-tag ${symbol === p ? 'gold' : ''}`}
+                onClick={() => setSymbol(p)}
+                style={{ cursor: 'pointer', minWidth: 70, justifyContent: 'center' }}
+              >
+                {p}
+              </button>
+            ))}
+            <span style={{ marginLeft: 'auto', color: 'var(--kt-dim)', fontSize: 'var(--xs)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {dataUpdatedAt && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#46c97f', animation: 'pulse-dot 2s infinite' }} />
+                  Updated {timeAgo(Math.floor(dataUpdatedAt / 1000))}
+                </span>
+              )}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Timeframe:</span>
+            {TIMEFRAMES.map(tf => (
+              <button
+                key={tf}
+                className={`kt-tag ${timeframe === tf ? 'gold' : ''}`}
+                onClick={() => setTimeframe(tf)}
+                style={{ cursor: 'pointer', fontSize: 10, padding: '3px 10px' }}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* ═══ ACCURACY STATS ═══ */}
+      {stats && stats.total > 0 && (
+        <div className="kt-card">
+          <div className="kt-card-pad">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Target size={16} style={{ color: 'var(--kt-gold)' }} />
+              <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Accuracy</span>
+              {!stats.ready && (
+                <span style={{ fontSize: 9, color: 'var(--kt-muted)', marginLeft: 'auto' }}>
+                  Collecting data... ({stats.total}/10 min)
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: 10, marginBottom: stats.ready ? 12 : 0 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: stats.winRate >= 50 ? 'var(--kt-up)' : 'var(--kt-dn)' }}>{stats.winRate}%</div>
+                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Win Rate</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{stats.total}</div>
+                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Total</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--kt-up)' }}>{stats.wins}</div>
+                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Wins</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--kt-dn)' }}>{stats.losses}</div>
+                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Losses</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{stats.avgRR}:1</div>
+                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Avg R:R</div>
+              </div>
+            </div>
+
+            {/* Per-bias breakdown */}
+            {Object.keys(stats.byBias).length > 0 && (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
+                {Object.entries(stats.byBias).map(([bias, data]) => (
+                  <span key={bias}>
+                    <span style={{ textTransform: 'capitalize' }}>{bias}</span>: {data.winRate}% ({data.wins}/{data.total})
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Confidence calibration */}
+            {stats.ready && Object.keys(stats.calibration).length > 0 && (
+              <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(245,158,11,.04)', borderRadius: 6, fontSize: 'var(--xs)' }}>
+                <span style={{ color: 'var(--kt-gold)', fontWeight: 600 }}>Calibration: </span>
+                {Object.entries(stats.calibration).map(([band, data]) => (
+                  <span key={band} style={{ color: 'var(--kt-muted)', marginRight: 10 }}>
+                    {band}: {data.actualWinRate}% actual ({data.total} signals)
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {isLoading && (
         <div className="kt-card">
@@ -433,13 +539,29 @@ export default function Signals() {
           )}
 
           {/* ═══ SIGNAL HISTORY ═══ */}
-          {history.length > 0 && (
+          {filteredHistory.length > 0 && (
             <div className="kt-card">
               <div className="kt-card-pad">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <Clock size={16} style={{ color: 'var(--kt-gold)' }} />
                   <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Signal History</span>
-                  <span className="kt-tag" style={{ fontSize: 9, marginLeft: 'auto' }}>{history.length} signals</span>
+                  <span className="kt-tag" style={{ fontSize: 9, marginLeft: 'auto' }}>{filteredHistory.length} signals</span>
+                </div>
+
+                {/* Filter pills */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 9, color: 'var(--kt-muted)', alignSelf: 'center' }}>Bias:</span>
+                  {['all', 'bullish', 'bearish'].map(b => (
+                    <button key={b} className={`kt-tag ${biasFilter === b ? 'gold' : ''}`} onClick={() => setBiasFilter(b)} style={{ fontSize: 9, padding: '2px 8px', cursor: 'pointer' }}>
+                      {b === 'all' ? 'All' : b.toUpperCase()}
+                    </button>
+                  ))}
+                  <span style={{ fontSize: 9, color: 'var(--kt-muted)', alignSelf: 'center', marginLeft: 6 }}>Result:</span>
+                  {['all', 'open', 'hit_tp', 'hit_sl'].map(r => (
+                    <button key={r} className={`kt-tag ${resultFilter === r ? 'gold' : ''}`} onClick={() => setResultFilter(r)} style={{ fontSize: 9, padding: '2px 8px', cursor: 'pointer' }}>
+                      {r === 'all' ? 'All' : r === 'hit_tp' ? 'WIN' : r === 'hit_sl' ? 'LOSS' : 'OPEN'}
+                    </button>
+                  ))}
                 </div>
 
                 <div style={{ overflowX: 'auto' }}>
@@ -448,6 +570,7 @@ export default function Signals() {
                       <tr>
                         <th style={{ textAlign: 'left' }}>Time</th>
                         <th style={{ textAlign: 'left' }}>Bias</th>
+                        <th style={{ textAlign: 'center' }}>TF</th>
                         <th style={{ textAlign: 'right' }}>Price</th>
                         <th style={{ textAlign: 'right' }}>Entry</th>
                         <th style={{ textAlign: 'right' }}>SL</th>
@@ -457,7 +580,7 @@ export default function Signals() {
                       </tr>
                     </thead>
                     <tbody>
-                      {history.map((h) => (
+                      {filteredHistory.map((h) => (
                         <tr key={h.id}>
                           <td style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
                             {new Date(h.created_at).toLocaleString('id-ID', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
@@ -467,6 +590,7 @@ export default function Signals() {
                               {h.bias.toUpperCase()}
                             </span>
                           </td>
+                          <td style={{ textAlign: 'center', fontSize: 9, color: 'var(--kt-muted)' }}>{h.timeframe || 'H1'}</td>
                           <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)' }}>{formatPrice(h.price)}</td>
                           <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)' }}>{formatPrice(h.entry)}</td>
                           <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)', color: 'var(--kt-dn)' }}>{formatPrice(h.sl)}</td>

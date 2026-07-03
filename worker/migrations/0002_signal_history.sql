@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS signal_history (
   result TEXT DEFAULT 'open',
   reason TEXT,
   confluence TEXT,
+  timeframe TEXT DEFAULT 'H1',
   created_at TEXT DEFAULT (datetime('now')),
   closed_at TEXT
 );
