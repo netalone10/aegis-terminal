@@ -40,8 +40,8 @@ const SMT_PAIRS = [
 ];
 
 // ─── Helper Functions ─────────────────────────────────────────
-function getWeekStart(date) {
-  const d = new Date(date);
+function getWeekStart(ts) {
+  const d = new Date((typeof ts === "number" ? ts : parseFloat(ts)) * 1000);
   const day = d.getUTCDay();
   const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
   d.setUTCDate(diff);
@@ -49,8 +49,8 @@ function getWeekStart(date) {
   return d.toISOString().split('T')[0];
 }
 
-function getISOWeek(date) {
-  const d = new Date(date);
+function getISOWeek(ts) {
+  const d = new Date((typeof ts === "number" ? ts : parseFloat(ts)) * 1000);
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
@@ -174,7 +174,7 @@ app.get('/api/weekly-profile/:symbol', async (req, res) => {
     const weekStart = getWeekStart(currentWeek.timestamp);
     const d1 = await pool.query(
       `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='D1'
-       AND timestamp >= $2::date AND timestamp < ($2::date + interval '7 days')
+       AND timestamp >= EXTRACT(EPOCH FROM $2::date)::bigint AND timestamp < EXTRACT(EPOCH FROM ($2::date + interval '7 days'))::bigint
        ORDER BY timestamp ASC`, [symbol, weekStart]
     );
     const dayCandles = d1.rows;
@@ -437,7 +437,7 @@ app.get('/api/h4-profile/:symbol', async (req, res) => {
       const { rows } = await pool.query(
         `INSERT INTO h4_signals (symbol, h4_candle_time, model, trigger_type, killzone, bias, key_level, confidence, weekly_profile_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-        [symbol, sig.h4_candle_time, sig.model, sig.trigger_type, sig.killzone, sig.bias, sig.key_level, sig.confidence, weeklyProfileId]
+        [symbol, new Date(sig.h4_candle_time * 1000).toISOString(), sig.model, sig.trigger_type, sig.killzone, sig.bias, sig.key_level, sig.confidence, weeklyProfileId]
       );
       storedSignals.push(rows[0]);
     }
@@ -485,8 +485,8 @@ app.get('/api/h1-confirm/:symbol', async (req, res) => {
     const h4Time = h4Signal.h4_candle_time;
     const h1 = await pool.query(
       `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='H1'
-       AND timestamp >= $2::timestamp - interval '1 hour'
-       AND timestamp < $2::timestamp + interval '4 hours'
+       AND timestamp >= (EXTRACT(EPOCH FROM $2::timestamp) - 3600)::bigint
+       AND timestamp < (EXTRACT(EPOCH FROM $2::timestamp) + 14400)::bigint
        ORDER BY timestamp ASC`, [symbol, h4Time]
     );
 
