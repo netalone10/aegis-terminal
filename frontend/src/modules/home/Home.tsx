@@ -352,9 +352,9 @@ export default function Home() {
             <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>XAUUSD</span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'thin' }}>
             {/* Weekly Profile */}
-            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)', flexShrink: 0, minWidth: 140 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Weekly Profile</span>
                 <span style={{ fontSize: 10 }}>✅</span>
@@ -379,7 +379,7 @@ export default function Home() {
             </div>
 
             {/* H4 Signal */}
-            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)', flexShrink: 0, minWidth: 140 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>H4 Signal</span>
                 <span style={{ fontSize: 10 }}>✅</span>
@@ -404,7 +404,7 @@ export default function Home() {
             </div>
 
             {/* H1 Confirm */}
-            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)', flexShrink: 0, minWidth: 140 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>H1 Confirm</span>
                 <span style={{ fontSize: 10 }}>✅</span>
@@ -429,7 +429,7 @@ export default function Home() {
             </div>
 
             {/* M15 Entry */}
-            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)', flexShrink: 0, minWidth: 140 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>M15 Entry</span>
                 <span style={{ fontSize: 10 }}>✅</span>
@@ -454,7 +454,7 @@ export default function Home() {
             </div>
 
             {/* Fundamental */}
-            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)', flexShrink: 0, minWidth: 140 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Fundamental</span>
                 <span style={{ fontSize: 10 }}>✅</span>
@@ -479,7 +479,7 @@ export default function Home() {
             </div>
 
             {/* SMT */}
-            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)', flexShrink: 0, minWidth: 140 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>SMT</span>
                 <span style={{ fontSize: 10 }}>—</span>
