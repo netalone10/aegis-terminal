@@ -54,7 +54,7 @@ export default function Chart() {
   const currentPriceRef = useRef<any>(null)
 
   // Fetch OHLCV — live mode polls every 3s via CF Worker (5s cache TTL)
-  const { data: candles, dataUpdatedAt } = useQuery<OHLCVCandle[]>({
+  const { data: candles } = useQuery<OHLCVCandle[]>({
     queryKey: ['ohlcv', symbol, timeframe],
     queryFn: () => api<OHLCVCandle[]>(`/api/analysis/ohlcv?symbol=${symbol}&interval=${timeframe}&limit=200&live=true`),
     refetchInterval: 3000,
