@@ -1504,3 +1504,257 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Aegis Terminal API v2 running on port ${PORT}`);
   console.log(`Endpoints: /health, /api/health, /api/weekly-profile/:symbol, /api/h4-profile/:symbol, /api/h1-confirm/:symbol, /api/entry/:symbol, /api/fundamental-context/:symbol, /api/smt/:symbol, /api/unified-signal/:symbol`);
 });
+
+// ═══════════════════════════════════════════════════════════════
+// WEEKLY OUTLOOK — Context aggregation + AI narrative
+// ═══════════════════════════════════════════════════════════════
+
+const MIMO_BASE = 'https://9router.amuharr.com/v1';
+const MIMO_KEY = process.env.MIMO_API_KEY || 'sk-e654a4de10dd8e99-qyz273-28986eae';
+const MIMO_MODEL = 'mimo/mimo-v2.5';
+
+app.get('/api/context/weekly/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const now = new Date();
+    const dayOfWeek = now.getUTCDay();
+    const monday = new Date(now);
+    monday.setUTCDate(now.getUTCDate() - ((dayOfWeek + 6) % 7));
+    monday.setUTCHours(0, 0, 0, 0);
+    const weekStart = monday.toISOString().split('T')[0];
+
+    const [wpRes, fcRes, smtRes, calRes] = await Promise.all([
+      pool.query('SELECT * FROM weekly_profiles WHERE symbol = $1 ORDER BY week_start DESC LIMIT 1', [symbol]),
+      pool.query('SELECT * FROM fundamental_bias WHERE symbol = $1 ORDER BY bias_date DESC LIMIT 1', [symbol]),
+      pool.query('SELECT * FROM smt_signals WHERE (pair1 = $1 OR pair2 = $1) ORDER BY created_at DESC LIMIT 3', [symbol]),
+      pool.query('SELECT * FROM week_classifications ORDER BY week_start DESC LIMIT 1'),
+    ]);
+
+    const [eventsRes, releasesRes] = await Promise.all([
+      pool.query(`SELECT * FROM economic_events WHERE $1 = ANY(affected_symbols) ORDER BY release_day, release_time_utc`, [symbol]),
+      pool.query(`SELECT er.*, ee.event_name, ee.impact_tier FROM event_releases er JOIN economic_events ee ON er.event_id = ee.id ORDER BY er.release_date DESC LIMIT 5`),
+    ]);
+
+    const wp = wpRes.rows[0] || null;
+    const fc = fcRes.rows[0] || null;
+    const wc = calRes.rows[0] || null;
+    const smt = smtRes.rows;
+    const events = eventsRes.rows;
+    const releases = releasesRes.rows;
+
+    // Day rankings
+    const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+    const dayTypes = {
+      monday: 'manipulation', tuesday: 'continuation', wednesday: 'reversal',
+      thursday: 'expansion', friday: 'distribution'
+    };
+    const dayWeights = { monday: 0.3, tuesday: 0.8, wednesday: 1.2, thursday: 0.9, friday: 1.5 };
+    const today = dayNames[dayOfWeek - 1] || 'monday';
+
+    const context = {
+      symbol,
+      weeklyProfile: wp ? {
+        model: wp.model, bias: wp.bias, sequence: wp.sequence,
+        confidence: wp.confidence, weekHigh: wp.high, weekLow: wp.low,
+        dayRankings: wp.day_rankings,
+      } : null,
+      fundamental: fc ? {
+        bias: fc.bias, score: Number(fc.score), dayType: fc.day_type,
+        eventProximity: fc.event_proximity, lastSurprise: fc.last_surprise,
+      } : null,
+      weekType: wc ? {
+        type: wc.week_type, volatilityMultiplier: Number(wc.volatility_multiplier),
+        maxPositions: wc.max_positions, strategy: wc.best_strategy,
+      } : null,
+      smtSignals: smt.map(s => ({
+        pair1: s.pair1, pair2: s.pair2, type: s.type,
+        description: s.description, confidence: s.confidence,
+      })),
+      economicEvents: events.map(e => ({
+        name: e.event_name, country: e.country, tier: e.impact_tier,
+        day: e.release_day, time: e.release_time_utc, chain: e.correlation_chain,
+      })),
+      recentReleases: releases.map(r => ({
+        event: r.event_name, actual: r.actual, consensus: r.consensus,
+        surprise: r.surprise_pct, date: r.release_date,
+      })),
+      today, dayType: dayTypes[today], dayWeight: dayWeights[today],
+      currentTime: now.toISOString(),
+    };
+
+    res.json({ status: 'ok', data: context });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/context/daily/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const dayOfWeek = now.getUTCDay();
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayTypes = {
+      monday: 'manipulation', tuesday: 'continuation', wednesday: 'reversal',
+      thursday: 'expansion', friday: 'distribution'
+    };
+
+    const [fcRes, wpRes, smtRes, entriesRes] = await Promise.all([
+      pool.query('SELECT * FROM fundamental_bias WHERE symbol = $1 ORDER BY bias_date DESC LIMIT 1', [symbol]),
+      pool.query('SELECT * FROM weekly_profiles WHERE symbol = $1 ORDER BY week_start DESC LIMIT 1', [symbol]),
+      pool.query('SELECT * FROM smt_signals WHERE (pair1 = $1 OR pair2 = $1) ORDER BY created_at DESC LIMIT 5', [symbol]),
+      pool.query('SELECT * FROM unified_signals WHERE symbol = $1 ORDER BY created_at DESC LIMIT 10', [symbol]),
+    ]);
+
+    const [todayEvents, recentReleases] = await Promise.all([
+      pool.query(`SELECT * FROM economic_events WHERE $1 = ANY(affected_symbols) AND release_day = $2`, [symbol, dayNames[dayOfWeek]?.slice(0, 3)]),
+      pool.query(`SELECT er.*, ee.event_name, ee.impact_tier FROM event_releases er JOIN economic_events ee ON er.event_id = ee.id WHERE ee.event_name = ANY(SELECT event_name FROM economic_events WHERE $1 = ANY(affected_symbols)) ORDER BY er.release_date DESC LIMIT 5`, [symbol]),
+    ]);
+
+    // Get recent H4 candles from historical_ohlc
+    const h4Candles = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol = $1 AND timeframe = 'H4' ORDER BY timestamp DESC LIMIT 12`,
+      [symbol]
+    );
+
+    // Get recent H1 candles
+    const h1Candles = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol = $1 AND timeframe = 'H1' ORDER BY timestamp DESC LIMIT 8`,
+      [symbol]
+    );
+
+    const fc = fcRes.rows[0] || null;
+    const wp = wpRes.rows[0] || null;
+
+    const context = {
+      symbol,
+      date: todayStr,
+      dayOfWeek: dayNames[dayOfWeek],
+      dayType: dayTypes[dayNames[dayOfWeek]] || 'unknown',
+      fundamental: fc ? {
+        bias: fc.bias, score: Number(fc.score), dayType: fc.day_type,
+        eventProximity: fc.event_proximity, lastSurprise: fc.last_surprise,
+        lastSurpriseDirection: fc.last_surprise_direction,
+      } : null,
+      weeklyProfile: wp ? {
+        model: wp.model, bias: wp.bias, confidence: wp.confidence,
+        weekHigh: wp.high, weekLow: wp.low,
+      } : null,
+      todayEvents: todayEvents.rows.map(e => ({
+        name: e.event_name, tier: e.impact_tier, time: e.release_time_utc,
+        chain: e.correlation_chain,
+      })),
+      recentReleases: recentReleases.rows.map(r => ({
+        event: r.event_name, actual: r.actual, consensus: r.consensus,
+        surprise: r.surprise_pct, date: r.release_date,
+      })),
+      smtSignals: smtRes.rows.map(s => ({
+        pair1: s.pair1, pair2: s.pair2, type: s.type, confidence: s.confidence,
+      })),
+      recentEntries: entriesRes.rows.map(e => ({
+        direction: e.direction, entry: e.entry_price, sl: e.stop_loss, tp: e.take_profit,
+        rr: e.rr_ratio, confidence: e.total_confidence, result: e.result,
+        createdAt: e.created_at,
+      })),
+      h4Candles: h4Candles.rows.map(c => ({
+        o: c.open, h: c.high, l: c.low, c: c.close, t: c.timestamp,
+      })),
+      h1Candles: h1Candles.rows.map(c => ({
+        o: c.open, h: c.high, l: c.low, c: c.close, t: c.timestamp,
+      })),
+      currentTime: now.toISOString(),
+    };
+
+    res.json({ status: 'ok', data: context });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══ AI NARRATIVE GENERATION ═══
+app.post('/api/ai/narrative', async (req, res) => {
+  try {
+    const { context, type } = req.body;
+    if (!context || !type) return res.status(400).json({ error: 'context and type required' });
+
+    const systemPrompt = type === 'weekly'
+      ? `You are Aegis Terminal's weekly market analyst. Generate a professional weekly outlook narrative for ${context.symbol || 'the market'}.
+
+Analyze the provided data and produce a structured weekly outlook with:
+1. WEEKLY BIAS — Clear bullish/bearish/neutral stance with reasoning
+2. KEY LEVELS — Important support/resistance from the data
+3. FUNDAMENTAL CONTEXT — How upcoming events affect the outlook
+4. RISK FACTORS — What could invalidate the bias
+5. TRADE PLAN — Suggested approach for the week
+
+Rules:
+- Be specific with price levels when available
+- Reference the weekly model (classic/consolidation/midweek reversal)
+- Factor in event proximity and week type
+- Keep it under 400 words
+- Use professional trading language
+- Format with markdown headings`
+      : `You are Aegis Terminal's daily market analyst. Generate a professional daily outlook narrative for ${context.symbol || 'the market'}.
+
+Analyze the provided data and produce a structured daily outlook with:
+1. TODAY'S BIAS — Clear direction with reasoning
+2. SESSION PLAN — Which sessions to focus on and why
+3. KEY LEVELS — Intraday support/resistance
+4. CATALYSTS — Today's events and their expected impact
+5. ENTRY ZONES — Where to look for entries
+6. RISK MANAGEMENT — Stop placement and position sizing
+
+Rules:
+- Reference the day type (manipulation/continuation/reversal/expansion/distribution)
+- Factor in event proximity
+- Be specific with price levels
+- Keep it under 350 words
+- Use professional trading language
+- Format with markdown headings`;
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Market Context:\n${JSON.stringify(context, null, 2)}` },
+    ];
+
+    const aiRes = await fetch(`${MIMO_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${MIMO_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MIMO_MODEL,
+        messages,
+        temperature: 0.7,
+        max_tokens: 1500,
+        stream: false,
+      }),
+    });
+
+    if (!aiRes.ok) {
+      const errText = await aiRes.text();
+      return res.status(502).json({ error: `AI API error: ${aiRes.status}`, detail: errText });
+    }
+
+    const data = await aiRes.json();
+    const narrative = data.choices?.[0]?.message?.content || '';
+
+    res.json({
+      status: 'ok',
+      data: {
+        narrative,
+        model: data.model || MIMO_MODEL,
+        type,
+        symbol: context.symbol,
+        timestamp: Date.now(),
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+console.log('Endpoints: + /api/context/weekly/:symbol, /api/context/daily/:symbol, /api/ai/narrative');

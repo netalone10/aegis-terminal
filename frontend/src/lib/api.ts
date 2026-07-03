@@ -1,4 +1,4 @@
-// Dual API: CF Workers (existing) + VPS (engines)
+// Dual API: CF Workers (existing) + VPS (engines + AI)
 const CF_API = 'https://aegis-terminal-api.akbar-rm10.workers.dev';
 const VPS_API = 'http://129.226.151.57:3001';
 
@@ -17,6 +17,9 @@ const VPS_PREFIXES = [
   '/api/event-release',
   '/api/signals/history',
   '/api/query',
+  '/api/context/weekly',
+  '/api/context/daily',
+  '/api/ai/narrative',
 ];
 
 function getBase(path: string): string {

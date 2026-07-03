@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import { api } from '../lib/api'
-import { ChevronDown, ChevronRight, Menu, X, Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase, Zap } from 'lucide-react'
+import { ChevronDown, ChevronRight, Menu, X, Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase, Zap, BarChart3 } from 'lucide-react'
 import { useState } from 'react'
 
 type NavItem = { to: string; label: string; icon: LucideIcon }
@@ -23,6 +23,8 @@ const NEW_NAV_GROUPS: NavGroup[] = [
       { to: '/killzone', label: 'Kill Zone', icon: Timer },
       { to: '/screening', label: 'Screening', icon: ScanLine },
       { to: '/signals', label: 'Signals', icon: Zap },
+      { to: '/weekly-outlook', label: 'Weekly Outlook', icon: Calendar },
+      { to: '/daily-outlook', label: 'Daily Outlook', icon: BarChart3 },
     ],
   },
   {
