@@ -55,10 +55,12 @@ const BIAS_COLORS: Record<string, string> = {
   neutral: '#94a3b8',
 }
 
-const IMPACT_BADGE: Record<string, { bg: string; text: string }> = {
-  HIGH: { bg: 'rgba(239,68,68,.15)', text: '#f87171' },
-  MEDIUM: { bg: 'rgba(245,158,11,.12)', text: '#f59e0b' },
-  LOW: { bg: 'rgba(148,163,184,.08)', text: '#94a3b8' },
+const TIER_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  'S+': { bg: 'rgba(239,68,68,.20)', text: '#ef4444', label: 'S+ CRITICAL' },
+  'S':  { bg: 'rgba(239,68,68,.15)', text: '#f87171', label: 'S HIGH' },
+  'A':  { bg: 'rgba(245,158,11,.12)', text: '#f59e0b', label: 'A MEDIUM' },
+  'B':  { bg: 'rgba(148,163,184,.08)', text: '#94a3b8', label: 'B LOW' },
+  'C':  { bg: 'rgba(148,163,184,.05)', text: '#64748b', label: 'C MINIMAL' },
 }
 
 /* ── helpers ───────────────────────────────────────────────────────── */
@@ -478,7 +480,7 @@ export default function WeeklyOutlook() {
               <div style={{ ...S.card, marginBottom: 20 }}>
                 <div style={S.sectionTitle}>
                   <Calendar size={16} color="#f59e0b" />
-                  Economic Events This Week
+                  Economic Events — This Week & Next Week
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={S.table}>
@@ -493,16 +495,29 @@ export default function WeeklyOutlook() {
                     </thead>
                     <tbody>
                       {context.economicEvents.map((ev: any, i: number) => {
-                        const ib = IMPACT_BADGE[ev.impact] ?? IMPACT_BADGE.LOW
+                        const ib = TIER_BADGE[ev.tier] ?? TIER_BADGE['C']
+                        const isPassed = ev.week === 'passed'
                         return (
-                          <tr key={i}>
-                            <td style={S.td}>{ev.name}</td>
-                            <td style={S.td}>{ev.day ?? ev.time?.slice(0, 10) ?? '—'}</td>
+                          <tr key={i} style={isPassed ? { opacity: 0.4 } : undefined}>
+                            <td style={S.td}>
+                              {ev.name}
+                              {isPassed && <span style={{ marginLeft: 6, fontSize: 9, color: '#64748b' }}>✓</span>}
+                            </td>
+                            <td style={{ ...S.td, fontSize: 10 }}>
+                              <div>{ev.day?.toUpperCase()}</div>
+                              <div style={{ color: '#64748b', fontFamily: 'var(--font-mono)' }}>{ev.thisWeekDate?.slice(5) ?? ''}</div>
+                              <div style={{ color: '#475569', fontSize: 9 }}>→{ev.nextWeekDate?.slice(5) ?? ''}</div>
+                            </td>
                             <td style={S.td}>{ev.time ?? '—'}</td>
                             <td style={S.td}>
-                              <span style={S.badge(ib.bg, ib.text)}>{ev.impact}</span>
+                              <span style={{ ...S.badge(ib.bg, ib.text), fontSize: 10, fontFamily: 'var(--font-mono)' }}>{ib.label}</span>
                             </td>
-                            <td style={S.td}>{ev.currency ?? '—'}</td>
+                            <td style={S.td}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(148,163,184,.08)', color: '#94a3b8' }}>{ev.country}</span>
+                                <span style={{ fontSize: 10, color: '#64748b' }}>{ev.chain}</span>
+                              </span>
+                            </td>
                           </tr>
                         )
                       })}
@@ -535,7 +550,7 @@ export default function WeeklyOutlook() {
                         return (
                           <tr key={i}>
                             <td style={S.td}>{rel.name}</td>
-                            <td style={S.td}>{rel.forecast ?? '—'}</td>
+                            <td style={S.td}>{rel.consensus ?? rel.forecast ?? '—'}</td>
                             <td style={S.td}>{rel.actual ?? '—'}</td>
                             <td style={{ ...S.td, color: surpriseColor(pct), fontWeight: 600 }}>
                               {pct !== null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'}

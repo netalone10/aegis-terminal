@@ -1566,10 +1566,31 @@ app.get('/api/context/weekly/:symbol', async (req, res) => {
         pair1: s.pair1, pair2: s.pair2, type: s.type,
         description: s.description, confidence: s.confidence,
       })),
-      economicEvents: events.map(e => ({
-        name: e.event_name, country: e.country, tier: e.impact_tier,
-        day: e.release_day, time: e.release_time_utc, chain: e.correlation_chain,
-      })),
+      economicEvents: (() => {
+        const dayMap = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5 };
+        const todayDow = now.getUTCDay();
+        const thisMonday = new Date(now);
+        thisMonday.setUTCDate(now.getUTCDate() - ((todayDow + 6) % 7));
+        thisMonday.setUTCHours(0, 0, 0, 0);
+        const nextMonday = new Date(thisMonday);
+        nextMonday.setUTCDate(thisMonday.getUTCDate() + 7);
+        return events.map(e => {
+          const dow = dayMap[e.release_day] ?? 1;
+          const thisWeekDate = new Date(thisMonday);
+          thisWeekDate.setUTCDate(thisMonday.getUTCDate() + (dow - 1));
+          const nextWeekDate = new Date(nextMonday);
+          nextWeekDate.setUTCDate(nextMonday.getUTCDate() + (dow - 1));
+          return {
+            name: e.event_name, country: e.country, tier: e.impact_tier,
+            impact: e.impact_tier === 'S+' ? 'HIGH' : e.impact_tier === 'S' ? 'HIGH'
+              : e.impact_tier === 'A' ? 'MEDIUM' : 'LOW',
+            day: e.release_day, time: e.release_time_utc, chain: e.correlation_chain,
+            thisWeekDate: thisWeekDate.toISOString().split('T')[0],
+            nextWeekDate: nextWeekDate.toISOString().split('T')[0],
+            week: thisWeekDate < now && dow < todayDow ? 'passed' : 'this',
+          };
+        });
+      })(),
       recentReleases: releases.map(r => ({
         event: r.event_name, actual: r.actual, consensus: r.consensus,
         surprise: r.surprise_pct, date: r.release_date,
