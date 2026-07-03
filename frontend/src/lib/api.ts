@@ -1,6 +1,6 @@
 // Dual API: CF Workers (existing) + VPS (engines + AI)
 const CF_API = 'https://aegis-terminal-api.akbar-rm10.workers.dev';
-const VPS_API = 'http://129.226.151.57:3001';
+const VPS_API = 'https://engine.aegisterminal.app';
 
 // Routes that go to VPS engine API
 const VPS_PREFIXES = [
