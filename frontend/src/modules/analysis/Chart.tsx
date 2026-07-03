@@ -51,12 +51,13 @@ export default function Chart() {
   const candleRef = useRef<ISeriesApi<SeriesType> | null>(null)
   const volumeRef = useRef<ISeriesApi<SeriesType> | null>(null)
   const priceLinesRef = useRef<any[]>([])
+  const currentPriceRef = useRef<any>(null)
 
-  // Fetch OHLCV
-  const { data: candles } = useQuery<OHLCVCandle[]>({
+  // Fetch OHLCV — live mode polls every 3s via CF Worker (5s cache TTL)
+  const { data: candles, dataUpdatedAt } = useQuery<OHLCVCandle[]>({
     queryKey: ['ohlcv', symbol, timeframe],
-    queryFn: () => api<OHLCVCandle[]>(`/api/analysis/ohlcv?symbol=${symbol}&interval=${timeframe}&limit=200`),
-    staleTime: 120_000,
+    queryFn: () => api<OHLCVCandle[]>(`/api/analysis/ohlcv?symbol=${symbol}&interval=${timeframe}&limit=200&live=true`),
+    refetchInterval: 3000,
   })
 
   // Fetch SMC data
@@ -135,10 +136,14 @@ export default function Chart() {
     candleRef.current.setData(candleData)
     volumeRef.current.setData(volData)
 
-    // Current price line
+    // Current price line — remove old, create new
+    if (currentPriceRef.current) {
+      try { candleRef.current.removePriceLine(currentPriceRef.current) } catch {}
+      currentPriceRef.current = null
+    }
     const last = sorted[sorted.length - 1]
     if (last) {
-      candleRef.current.createPriceLine({
+      currentPriceRef.current = candleRef.current.createPriceLine({
         price: last.close,
         color: last.close >= last.open ? '#46c97f' : '#ff4d4f',
         lineWidth: 1,
@@ -259,8 +264,12 @@ export default function Chart() {
             <span className="mono" style={{ color: 'var(--kt-text)', fontWeight: 600 }}>{symbol}</span>
             <span className="kt-tag gold">{timeframe}</span>
           </div>
-          <span style={{ color: 'var(--kt-dim)', fontSize: 'var(--xs)', letterSpacing: 1.6, textTransform: 'uppercase' }}>
+          <span style={{ color: 'var(--kt-dim)', fontSize: 'var(--xs)', letterSpacing: 1.6, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8 }}>
             {candles ? `${candles.length} candles` : 'Loading…'}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#46c97f', fontWeight: 600 }}>
+              <span className="animate-pulse-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#46c97f' }} />
+              LIVE
+            </span>
           </span>
         </div>
         <div style={{ position: 'relative' }}>

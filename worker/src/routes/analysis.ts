@@ -517,12 +517,14 @@ function yahooRange(interval: string, limit: number): string {
   return '6mo';
 }
 
-// GET /api/analysis/ohlcv?symbol=XAUUSD&interval=4h&limit=200
+// GET /api/analysis/ohlcv?symbol=XAUUSD&interval=4h&limit=200&live=true
+// live=true uses 5s cache TTL for real-time polling
 analysisRoutes.get('/ohlcv', async (c) => {
   const symbol = c.req.query('symbol') ?? 'XAUUSD';
   const interval = c.req.query('interval') ?? '4h';
   const limit = Math.min(parseInt(c.req.query('limit') ?? '200', 10), 1000);
-  const cache = new Cache(c.env.AEGIS_CACHE, 120);
+  const live = c.req.query('live') === 'true';
+  const cache = new Cache(c.env.AEGIS_CACHE, live ? 5 : 120);
 
   try {
     const yahooFallback = async (): Promise<Candle[]> => {
