@@ -109,6 +109,14 @@ export default function Home() {
     retry: false,
   })
 
+  const { data: unifiedSignal } = useQuery<any>({
+    queryKey: ['unified-signal', 'XAUUSD'],
+    queryFn: () => api('/api/unified-signal/XAUUSD'),
+    staleTime: 120_000,
+    refetchInterval: 120_000,
+    retry: false,
+  })
+
   /* ── Derived Data ── */
   const pairs = Array.isArray(smcData) ? smcData : (smcData?.data ?? [])
   const xau = pairs.find((p: any) => p.symbol === 'XAU/USD')
@@ -221,6 +229,285 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* ═══════════════════════════════════════════════════
+          MULTI-LAYER ANALYSIS (Unified Signal)
+          ═══════════════════════════════════════════════════ */}
+      {unifiedSignal && (
+        <div className="kt-card kt-card-pad">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Zap size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Multi-Layer Analysis</span>
+            <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>XAUUSD</span>
+          </div>
+
+          {/* Signal Banner */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+            padding: '8px 12px', borderRadius: 8, marginBottom: 10,
+            background: 'rgba(245,158,11,.06)',
+            border: '1px solid rgba(245,158,11,.15)',
+          }}>
+            {/* Direction */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {biasIcon(unifiedSignal.direction ?? 'neutral')}
+              <span style={{
+                fontSize: 'var(--sm)', fontWeight: 700, textTransform: 'uppercase',
+                fontFamily: 'var(--font-mono)', color: biasColor(unifiedSignal.direction ?? 'neutral'),
+              }}>
+                {unifiedSignal.direction ?? 'neutral'}
+              </span>
+            </div>
+
+            {/* Confidence */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{
+                fontSize: 'var(--sm)', fontWeight: 700, fontFamily: 'var(--font-mono)',
+                color: (unifiedSignal.confidence ?? 0) >= 70 ? 'var(--kt-up)'
+                  : (unifiedSignal.confidence ?? 0) >= 40 ? '#f59e0b'
+                  : 'var(--kt-dn)',
+              }}>
+                {unifiedSignal.confidence ?? 0}%
+              </span>
+              <span style={{ fontSize: 9, color: 'var(--kt-muted)' }}>confidence</span>
+            </div>
+
+            {/* Threshold marker */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 9, color: 'var(--kt-muted)' }}>threshold</span>
+              <span style={{ fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--kt-muted)' }}>
+                {unifiedSignal.threshold ?? 65}
+              </span>
+            </div>
+
+            {/* Generated badge */}
+            <span style={{
+              padding: '2px 8px', borderRadius: 4,
+              fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)',
+              background: unifiedSignal.generated ? 'rgba(34,197,94,.15)' : 'rgba(148,163,184,.08)',
+              color: unifiedSignal.generated ? 'var(--kt-up)' : 'var(--kt-muted)',
+              marginLeft: 'auto',
+            }}>
+              {unifiedSignal.generated ? '✅ GENERATED' : '⏳ NOT GENERATED'}
+            </span>
+          </div>
+
+          {/* Reasons (if not generated) */}
+          {!unifiedSignal.generated && unifiedSignal.reasons?.length > 0 && (
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10,
+            }}>
+              {unifiedSignal.reasons.map((r: string, i: number) => (
+                <span key={i} style={{
+                  padding: '3px 8px', borderRadius: 4,
+                  fontSize: 9, color: 'var(--kt-muted)',
+                  background: 'rgba(148,163,184,.08)',
+                  border: '1px solid rgba(148,163,184,.12)',
+                  fontFamily: 'var(--font-mono)',
+                }}>
+                  {r}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Layer Cards Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
+            {/* Weekly Profile */}
+            <div style={{
+              padding: 10, borderRadius: 6,
+              background: 'rgba(255,255,255,.02)',
+              border: '1px solid var(--kt-border)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Weekly Profile</span>
+                <span style={{ fontSize: 10 }}>✅</span>
+              </div>
+              <div style={{
+                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
+              }}>
+                <div style={{
+                  width: `${Math.min((unifiedSignal.breakdown?.weeklyProfile?.score ?? 0), 100)}%`,
+                  height: '100%', borderRadius: 2,
+                  background: (unifiedSignal.breakdown?.weeklyProfile?.score ?? 0) > 70 ? 'var(--kt-up)'
+                    : (unifiedSignal.breakdown?.weeklyProfile?.score ?? 0) >= 40 ? '#f59e0b'
+                    : 'var(--kt-dn)',
+                  transition: 'width .4s',
+                }} />
+              </div>
+              <div style={{ fontSize: 'var(--sm)', fontWeight: 700, color: 'var(--kt-text)', textTransform: 'capitalize' }}>
+                {unifiedSignal.breakdown?.weeklyProfile?.bias ?? '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                {unifiedSignal.breakdown?.weeklyProfile?.model?.replace('_', ' ') ?? '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                score: {unifiedSignal.breakdown?.weeklyProfile?.score ?? '—'}
+              </div>
+            </div>
+
+            {/* H4 Signal */}
+            <div style={{
+              padding: 10, borderRadius: 6,
+              background: 'rgba(255,255,255,.02)',
+              border: '1px solid var(--kt-border)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>H4 Signal</span>
+                <span style={{ fontSize: 10 }}>✅</span>
+              </div>
+              <div style={{
+                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
+              }}>
+                <div style={{
+                  width: `${Math.min((unifiedSignal.breakdown?.h4Signal?.score ?? 0), 100)}%`,
+                  height: '100%', borderRadius: 2,
+                  background: (unifiedSignal.breakdown?.h4Signal?.score ?? 0) > 70 ? 'var(--kt-up)'
+                    : (unifiedSignal.breakdown?.h4Signal?.score ?? 0) >= 40 ? '#f59e0b'
+                    : 'var(--kt-dn)',
+                  transition: 'width .4s',
+                }} />
+              </div>
+              <div style={{ fontSize: 'var(--sm)', fontWeight: 700, color: 'var(--kt-text)', textTransform: 'capitalize' }}>
+                {unifiedSignal.breakdown?.h4Signal?.bias ?? '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                Model {unifiedSignal.breakdown?.h4Signal?.modelNumber ?? '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                {unifiedSignal.breakdown?.h4Signal?.killzone ?? '—'}
+              </div>
+            </div>
+
+            {/* H1 Confirm */}
+            <div style={{
+              padding: 10, borderRadius: 6,
+              background: 'rgba(255,255,255,.02)',
+              border: '1px solid var(--kt-border)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>H1 Confirm</span>
+                <span style={{ fontSize: 10 }}>✅</span>
+              </div>
+              <div style={{
+                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
+              }}>
+                <div style={{
+                  width: `${Math.min((unifiedSignal.breakdown?.h1Confirm?.score ?? 0), 100)}%`,
+                  height: '100%', borderRadius: 2,
+                  background: (unifiedSignal.breakdown?.h1Confirm?.score ?? 0) > 70 ? 'var(--kt-up)'
+                    : (unifiedSignal.breakdown?.h1Confirm?.score ?? 0) >= 40 ? '#f59e0b'
+                    : 'var(--kt-dn)',
+                  transition: 'width .4s',
+                }} />
+              </div>
+              <div style={{ fontSize: 'var(--sm)', fontWeight: 700, color: 'var(--kt-text)' }}>
+                {unifiedSignal.breakdown?.h1Confirm?.confirmed ? 'Confirmed ✅' : 'Not Confirmed'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                {unifiedSignal.breakdown?.h1Confirm?.type ?? '—'} · {unifiedSignal.breakdown?.h1Confirm?.ohStatus ?? '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                OL: {unifiedSignal.breakdown?.h1Confirm?.olStatus ?? '—'}
+              </div>
+            </div>
+
+            {/* M15 Entry */}
+            <div style={{
+              padding: 10, borderRadius: 6,
+              background: 'rgba(255,255,255,.02)',
+              border: '1px solid var(--kt-border)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>M15 Entry</span>
+                <span style={{ fontSize: 10 }}>✅</span>
+              </div>
+              <div style={{
+                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
+              }}>
+                <div style={{
+                  width: `${Math.min((unifiedSignal.breakdown?.m15Entry?.score ?? 0), 100)}%`,
+                  height: '100%', borderRadius: 2,
+                  background: (unifiedSignal.breakdown?.m15Entry?.score ?? 0) > 70 ? 'var(--kt-up)'
+                    : (unifiedSignal.breakdown?.m15Entry?.score ?? 0) >= 40 ? '#f59e0b'
+                    : 'var(--kt-dn)',
+                  transition: 'width .4s',
+                }} />
+              </div>
+              <div style={{ fontSize: 'var(--sm)', fontWeight: 700, color: 'var(--kt-text)' }}>
+                {unifiedSignal.breakdown?.m15Entry?.po3Phase ?? '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                MSS: {unifiedSignal.breakdown?.m15Entry?.mss ? 'Yes' : 'No'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                FVG: {unifiedSignal.breakdown?.m15Entry?.fvgStage ?? '—'}
+              </div>
+            </div>
+
+            {/* Fundamental */}
+            <div style={{
+              padding: 10, borderRadius: 6,
+              background: 'rgba(255,255,255,.02)',
+              border: '1px solid var(--kt-border)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Fundamental</span>
+                <span style={{ fontSize: 10 }}>✅</span>
+              </div>
+              <div style={{
+                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
+              }}>
+                <div style={{
+                  width: `${Math.min((unifiedSignal.breakdown?.fundamental?.score ?? 0) * 5, 100)}%`,
+                  height: '100%', borderRadius: 2,
+                  background: (unifiedSignal.breakdown?.fundamental?.score ?? 0) > 14 ? 'var(--kt-up)'
+                    : (unifiedSignal.breakdown?.fundamental?.score ?? 0) >= 8 ? '#f59e0b'
+                    : 'var(--kt-dn)',
+                  transition: 'width .4s',
+                }} />
+              </div>
+              <div style={{ fontSize: 'var(--sm)', fontWeight: 700, color: 'var(--kt-text)', textTransform: 'capitalize' }}>
+                {unifiedSignal.breakdown?.fundamental?.bias ?? '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                {unifiedSignal.breakdown?.fundamental?.weekType ?? '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                score: {unifiedSignal.breakdown?.fundamental?.score ?? '—'}
+              </div>
+            </div>
+
+            {/* SMT */}
+            <div style={{
+              padding: 10, borderRadius: 6,
+              background: 'rgba(255,255,255,.02)',
+              border: '1px solid var(--kt-border)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>SMT</span>
+                <span style={{ fontSize: 10 }}>—</span>
+              </div>
+              <div style={{
+                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
+              }}>
+                <div style={{
+                  width: '0%',
+                  height: '100%', borderRadius: 2,
+                  background: 'var(--kt-dn)',
+                  transition: 'width .4s',
+                }} />
+              </div>
+              <div style={{ fontSize: 'var(--sm)', fontWeight: 700, color: 'var(--kt-muted)' }}>
+                No Data
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                —
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════
           MIDDLE: Key Levels + Live Rates
