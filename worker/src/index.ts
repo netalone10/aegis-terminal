@@ -16,6 +16,7 @@ import { planRoutes } from './routes/plan';
 import { sentimentRoutes } from './routes/sentiment';
 import { backtestRoutes } from './routes/backtest';
 import { sessionRoutes } from './routes/session';
+import { signalsRoutes } from './routes/signals';
 import { Cache } from './cache';
 
 export type Bindings = {
@@ -47,6 +48,7 @@ app.route('/api/plan', planRoutes);
 app.route('/api/sentiment', sentimentRoutes);
 app.route('/api/backtest', backtestRoutes);
 app.route('/api/session', sessionRoutes);
+app.route('/api/signals', signalsRoutes);
 
 app.get('/', (c) => c.json({ status: 'ok', service: 'aegis-terminal-api', version: '1.1.0' }));
 

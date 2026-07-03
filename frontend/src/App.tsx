@@ -12,6 +12,7 @@ import Rates from './modules/analysis/Rates'
 import HeadlineNews from './modules/analysis/HeadlineNews'
 import Research from './modules/analysis/Research'
 import Journal from './modules/analysis/Journal'
+import Signals from './modules/analysis/Signals'
 import Market from './modules/market/Market'
 import Portfolio from './modules/portfolio/Portfolio'
 
@@ -44,6 +45,7 @@ function AppShell() {
             <Route path="/news" element={<HeadlineNews />} />
             <Route path="/research" element={<Research />} />
             <Route path="/journal" element={<Journal />} />
+            <Route path="/signals" element={<Signals />} />
             <Route path="/market" element={<Market />} />
             <Route path="/portfolio" element={<Portfolio />} />
           </Routes>
