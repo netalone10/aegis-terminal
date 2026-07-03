@@ -1625,7 +1625,7 @@ app.get('/api/context/daily/:symbol', async (req, res) => {
     ]);
 
     const [todayEvents, recentReleases] = await Promise.all([
-      pool.query(`SELECT * FROM economic_events WHERE $1 = ANY(affected_symbols) AND release_day = $2`, [symbol, dayNames[dayOfWeek]?.slice(0, 3)]),
+      pool.query(`SELECT * FROM economic_events WHERE $1 = ANY(affected_symbols) ORDER BY release_day, release_time_utc`, [symbol]),
       pool.query(`SELECT er.*, ee.event_name, ee.impact_tier FROM event_releases er JOIN economic_events ee ON er.event_id = ee.id WHERE ee.event_name = ANY(SELECT event_name FROM economic_events WHERE $1 = ANY(affected_symbols)) ORDER BY er.release_date DESC LIMIT 5`, [symbol]),
     ]);
 
@@ -1658,10 +1658,28 @@ app.get('/api/context/daily/:symbol', async (req, res) => {
         model: wp.model, bias: wp.bias, confidence: wp.confidence,
         weekHigh: wp.high, weekLow: wp.low,
       } : null,
-      todayEvents: todayEvents.rows.map(e => ({
-        name: e.event_name, tier: e.impact_tier, time: e.release_time_utc,
-        chain: e.correlation_chain,
-      })),
+      todayEvents: (() => {
+        const dayMap = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5 };
+        const todayDow = dayOfWeek;
+        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const monday = new Date(now);
+        monday.setUTCDate(now.getUTCDate() - ((dayOfWeek + 6) % 7));
+        monday.setUTCHours(0, 0, 0, 0);
+        return todayEvents.rows.map(e => {
+          const dow = dayMap[e.release_day] ?? 1;
+          const eventDate = new Date(monday);
+          eventDate.setUTCDate(monday.getUTCDate() + (dow - 1));
+          const isToday = dow === todayDow;
+          const isUpcoming = dow > todayDow;
+          const dayDiff = dow - todayDow;
+          return {
+            name: e.event_name, tier: e.impact_tier, time: e.release_time_utc,
+            chain: e.correlation_chain, country: e.country,
+            isToday, isUpcoming,
+            dayLabel: isToday ? 'Today' : isUpcoming ? `In ${dayDiff}d` : 'Passed',
+          };
+        });
+      })(),
       recentReleases: recentReleases.rows.map(r => ({
         event: r.event_name, actual: r.actual, consensus: r.consensus,
         surprise: r.surprise_pct, date: r.release_date,
