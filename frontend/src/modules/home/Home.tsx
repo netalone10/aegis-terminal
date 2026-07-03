@@ -1,9 +1,8 @@
-import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Activity, TrendingUp, TrendingDown, Minus,
-  Clock, Wifi, WifiOff, Zap, Calendar, Target, BarChart3, Shield,
+  Clock, Wifi, WifiOff, Zap, Target, BarChart3, Shield,
 } from 'lucide-react'
 import { api } from '../../lib/api'
 
@@ -58,7 +57,7 @@ function biasIcon(bias: string) {
   return <Minus size={14} style={{ color: 'var(--kt-muted)' }} />
 }
 
-const DAY_SHORT = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+
 
 /* ═══════════════════════════════════════════════════════════════════
    DASHBOARD COMPONENT
@@ -66,6 +65,8 @@ const DAY_SHORT = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
 
 export default function Home() {
   const [killActive, setKillActive] = useState(isKillZoneActive())
+  const prevBidRef = useRef<number | null>(null)
+  const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null)
 
   useEffect(() => {
     const id = setInterval(() => setKillActive(isKillZoneActive()), 30_000)
@@ -73,14 +74,6 @@ export default function Home() {
   }, [])
 
   /* ── Queries ── */
-  const { data: smcData } = useQuery<any>({
-    queryKey: ['smc-batch'],
-    queryFn: () => api('/api/smc/batch'),
-    staleTime: 300_000,
-    refetchInterval: 120_000,
-    retry: false,
-  })
-
   const { data: price } = useQuery<any>({
     queryKey: ['mt5-price', 'XAUUSD.vxc'],
     queryFn: () => api('/api/mt5/price?symbol=XAUUSD.vxc'),
@@ -95,20 +88,6 @@ export default function Home() {
     retry: false,
   })
 
-  const { data: calendarEvents = [] } = useQuery<any[]>({
-    queryKey: ['calendar'],
-    queryFn: () => api('/api/calendar'),
-    staleTime: 300_000,
-    retry: false,
-  })
-
-  const { data: macro } = useQuery<any>({
-    queryKey: ['macro'],
-    queryFn: () => api('/api/macro'),
-    staleTime: 300_000,
-    retry: false,
-  })
-
   const { data: unifiedSignal } = useQuery<any>({
     queryKey: ['unified-signal', 'XAUUSD'],
     queryFn: () => api('/api/unified-signal/XAUUSD'),
@@ -117,59 +96,114 @@ export default function Home() {
     retry: false,
   })
 
+  const { data: dailyCtx } = useQuery<any>({
+    queryKey: ['daily-context', 'XAUUSD'],
+    queryFn: () => api('/api/context/daily/XAUUSD'),
+    staleTime: 300_000,
+    retry: false,
+  })
+
+  /* ── Price Flash Effect ── */
+  useEffect(() => {
+    if (!price?.bid) return
+    const prev = prevBidRef.current
+    if (prev !== null) {
+      if (price.bid > prev) setPriceFlash('up')
+      else if (price.bid < prev) setPriceFlash('down')
+      const t = setTimeout(() => setPriceFlash(null), 400)
+      prevBidRef.current = price.bid
+      return () => clearTimeout(t)
+    }
+    prevBidRef.current = price.bid
+  }, [price?.bid])
+
   /* ── Derived Data ── */
-  const pairs = Array.isArray(smcData) ? smcData : (smcData?.data ?? [])
-  const xau = pairs.find((p: any) => p.symbol === 'XAU/USD')
-  const eur = pairs.find((p: any) => p.symbol === 'EUR/USD')
-  const gbp = pairs.find((p: any) => p.symbol === 'GBP/USD')
-
   const activeTrades = trades.filter((t: any) => t.status === 'active')
-  const totalPnl = trades.filter((t: any) => t.status === 'closed').reduce((s: number, t: any) => s + (t.current_pnl ?? 0), 0)
-
-  // Weekly calendar summary
-  const now = new Date()
-  const monday = new Date(now)
-  monday.setDate(now.getDate() - now.getDay() + 1)
-  const friday = new Date(monday)
-  friday.setDate(monday.getDate() + 4)
-  const weekEvents = calendarEvents.filter((ev: any) => {
-    const d = new Date(ev.time || ev.date || '')
-    return d >= monday && d <= friday
-  })
-  const highImpactCount = weekEvents.filter((ev: any) => {
-    const impact = typeof ev.impact === 'number' ? ev.impact : String(ev.impact).toUpperCase() === 'HIGH' ? 3 : String(ev.impact).toUpperCase() === 'MEDIUM' ? 2 : 1
-    return impact >= 3
-  }).length
-
-  // Daily risk map for the week
-  const days = Array.from({ length: 5 }, (_, i) => {
-    const d = new Date(monday)
-    d.setDate(monday.getDate() + i)
-    const dayEvents = weekEvents.filter((ev: any) => {
-      const ed = new Date(ev.time || ev.date || '')
-      return ed.getFullYear() === d.getFullYear() && ed.getMonth() === d.getMonth() && ed.getDate() === d.getDate()
-    })
-    const maxImpact = dayEvents.length > 0
-      ? Math.max(...dayEvents.map((e: any) => typeof e.impact === 'number' ? e.impact : String(e.impact).toUpperCase() === 'HIGH' ? 3 : String(e.impact).toUpperCase() === 'MEDIUM' ? 2 : 1))
-      : 0
-    return { date: d, count: dayEvents.length, maxImpact }
-  })
-
-  const sentiment = macro?.regime?.toLowerCase() === 'expansion' ? 'Risk-On'
-    : macro?.regime?.toLowerCase() === 'deflation' || macro?.regime?.toLowerCase() === 'stagflation' ? 'Risk-Off'
-    : 'Mixed'
-
+  const closedTrades = trades.filter((t: any) => t.status === 'closed')
+  const totalPnl = closedTrades.reduce((s: number, t: any) => s + (t.current_pnl ?? 0), 0)
   const conn = price ? true : false
+
+  const direction = unifiedSignal?.direction ?? 'neutral'
+  const confidence = unifiedSignal?.confidence ?? 0
+  const threshold = unifiedSignal?.threshold ?? 65
+  const generated = unifiedSignal?.generated ?? false
+  const reasons = unifiedSignal?.reasons ?? []
+
+  const weekHigh = dailyCtx?.weeklyProfile?.weekHigh
+  const weekLow = dailyCtx?.weeklyProfile?.weekLow
+  const currentBid = price?.bid
+
+  // Distance from high/low as percentage
+  let distFromHigh: string = '—'
+  let distFromLow: string = '—'
+  if (weekHigh && weekLow && currentBid && weekHigh > weekLow) {
+    const range = weekHigh - weekLow
+    distFromHigh = (((weekHigh - currentBid) / range) * 100).toFixed(1)
+    distFromLow = (((currentBid - weekLow) / range) * 100).toFixed(1)
+  }
+
+  // Premium/Discount zone
+  const premiumZone = weekHigh && weekLow && currentBid
+    ? currentBid > (weekHigh + weekLow) / 2
+    : null
+
+  // Events
+  const todayEvents = dailyCtx?.todayEvents ?? []
+
+  // Day weight mapping
+  const dayWeights: Record<string, string> = {
+    manipulation: '2.0x', continuation: '1.5x', reversal: '1.5x',
+    expansion: '1.5x', distribution: '1.0x',
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* ═══════════════════════════════════════════════════
-          TOP: Session + Bias + Quick P&L
+          ROW 1: Live Price + Session + Quick P&L
           ═══════════════════════════════════════════════════ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
 
-        {/* Session Status */}
+        {/* ── Card 1: Live Price ── */}
+        <div className="kt-card kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Activity size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Live Price</span>
+            {conn ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', fontSize: 9, color: 'var(--kt-up)' }}>
+                <Wifi size={10} /> Live
+              </span>
+            ) : (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', fontSize: 9, color: 'var(--kt-dn)' }}>
+                <WifiOff size={10} /> Offline
+              </span>
+            )}
+          </div>
+          <div style={{
+            padding: '8px 12px', borderRadius: 8,
+            background: priceFlash === 'up' ? 'rgba(34,197,94,.12)'
+              : priceFlash === 'down' ? 'rgba(239,68,68,.12)'
+              : 'rgba(245,158,11,.06)',
+            border: `1px solid ${priceFlash === 'up' ? 'rgba(34,197,94,.25)' : priceFlash === 'down' ? 'rgba(239,68,68,.25)' : 'rgba(245,158,11,.15)'}`,
+            transition: 'background .3s, border-color .3s',
+          }}>
+            <div style={{
+              fontSize: 'var(--md)', fontWeight: 800, fontFamily: 'var(--font-mono)',
+              color: priceFlash === 'up' ? 'var(--kt-up)' : priceFlash === 'down' ? 'var(--kt-dn)' : 'var(--kt-text)',
+              transition: 'color .3s',
+            }}>
+              {currentBid?.toFixed(2) ?? '—'}
+            </div>
+            {price && (
+              <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
+                <span>Ask: {price.ask?.toFixed(2)}</span>
+                <span>Spread: {price.spread} pts</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Card 2: Session Status ── */}
         <div className="kt-card kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Clock size={16} style={{ color: killActive ? 'var(--kt-gold)' : 'var(--kt-muted)' }} />
@@ -187,75 +221,73 @@ export default function Home() {
           <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
             {nextKillZoneCountdown()}
           </span>
+          {dailyCtx?.dayType && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              <span style={{
+                padding: '2px 8px', borderRadius: 4, fontSize: 'var(--xs)', fontWeight: 700,
+                fontFamily: 'var(--font-mono)', textTransform: 'capitalize',
+                background: 'rgba(245,158,11,.10)', color: 'var(--kt-gold)',
+              }}>
+                {dailyCtx.dayType}
+              </span>
+              <span style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                Weight: {dayWeights[dailyCtx.dayType] ?? '1.0x'}
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Daily Bias (XAU) */}
-        <div className="kt-card kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Target size={16} style={{ color: 'var(--kt-gold)' }} />
-            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>XAU/USD Bias</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {biasIcon(xau?.bias ?? 'neutral')}
-            <span style={{ fontSize: 'var(--md)', fontWeight: 700, color: biasColor(xau?.bias ?? 'neutral'), textTransform: 'uppercase' }}>
-              {xau?.bias ?? 'Neutral'}
-            </span>
-            <span style={{ fontSize: 'var(--sm)', color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
-              {xau?.confidence ?? 0}%
-            </span>
-          </div>
-          <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-            {xau?.premiumDiscount?.toUpperCase?.() ?? 'ZONE'} · {xau?.killZone?.replace('_', ' ')?.toUpperCase?.() ?? '—'}
-          </span>
-        </div>
-
-        {/* Quick P&L */}
+        {/* ── Card 3: Quick P&L ── */}
         <div className="kt-card kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <BarChart3 size={16} style={{ color: 'var(--kt-gold)' }} />
             <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Quick P&L</span>
           </div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'baseline' }}>
-            <div>
-              <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Active</span>
-              <span style={{ display: 'block', fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{activeTrades.length}</span>
+          {activeTrades.length === 0 && closedTrades.length === 0 ? (
+            <div style={{ padding: '8px 0', textAlign: 'center' }}>
+              <span style={{ color: 'var(--kt-muted)', fontSize: 'var(--xs)' }}>No active trades</span>
             </div>
-            <div>
-              <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Closed P&L</span>
-              <span style={{ display: 'block', fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)', color: totalPnl >= 0 ? 'var(--kt-up)' : 'var(--kt-dn)' }}>
-                {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)}
-              </span>
+          ) : (
+            <div style={{ display: 'flex', gap: 16, alignItems: 'baseline' }}>
+              <div>
+                <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Active</span>
+                <span style={{ display: 'block', fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{activeTrades.length}</span>
+              </div>
+              <div>
+                <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Closed P&L</span>
+                <span style={{ display: 'block', fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)', color: totalPnl >= 0 ? 'var(--kt-up)' : 'var(--kt-dn)' }}>
+                  {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
       {/* ═══════════════════════════════════════════════════
-          MULTI-LAYER ANALYSIS (Unified Signal)
+          ROW 2: Signal Banner (full width)
           ═══════════════════════════════════════════════════ */}
       {unifiedSignal && (
         <div className="kt-card kt-card-pad">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <Zap size={16} style={{ color: 'var(--kt-gold)' }} />
-            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Multi-Layer Analysis</span>
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Signal</span>
             <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>XAUUSD</span>
           </div>
-
-          {/* Signal Banner */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-            padding: '8px 12px', borderRadius: 8, marginBottom: 10,
+            padding: '10px 14px', borderRadius: 8,
             background: 'rgba(245,158,11,.06)',
             border: '1px solid rgba(245,158,11,.15)',
           }}>
             {/* Direction */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {biasIcon(unifiedSignal.direction ?? 'neutral')}
+              {biasIcon(direction)}
               <span style={{
                 fontSize: 'var(--sm)', fontWeight: 700, textTransform: 'uppercase',
-                fontFamily: 'var(--font-mono)', color: biasColor(unifiedSignal.direction ?? 'neutral'),
+                fontFamily: 'var(--font-mono)', color: biasColor(direction),
               }}>
-                {unifiedSignal.direction ?? 'neutral'}
+                {direction}
               </span>
             </div>
 
@@ -263,11 +295,9 @@ export default function Home() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{
                 fontSize: 'var(--sm)', fontWeight: 700, fontFamily: 'var(--font-mono)',
-                color: (unifiedSignal.confidence ?? 0) >= 70 ? 'var(--kt-up)'
-                  : (unifiedSignal.confidence ?? 0) >= 40 ? '#f59e0b'
-                  : 'var(--kt-dn)',
+                color: confidence >= 70 ? 'var(--kt-up)' : confidence >= 40 ? '#f59e0b' : 'var(--kt-dn)',
               }}>
-                {unifiedSignal.confidence ?? 0}%
+                {confidence}%
               </span>
               <span style={{ fontSize: 9, color: 'var(--kt-muted)' }}>confidence</span>
             </div>
@@ -276,7 +306,7 @@ export default function Home() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ fontSize: 9, color: 'var(--kt-muted)' }}>threshold</span>
               <span style={{ fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--kt-muted)' }}>
-                {unifiedSignal.threshold ?? 65}
+                {threshold}
               </span>
             </div>
 
@@ -284,20 +314,18 @@ export default function Home() {
             <span style={{
               padding: '2px 8px', borderRadius: 4,
               fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)',
-              background: unifiedSignal.generated ? 'rgba(34,197,94,.15)' : 'rgba(148,163,184,.08)',
-              color: unifiedSignal.generated ? 'var(--kt-up)' : 'var(--kt-muted)',
+              background: generated ? 'rgba(34,197,94,.15)' : 'rgba(148,163,184,.08)',
+              color: generated ? 'var(--kt-up)' : 'var(--kt-muted)',
               marginLeft: 'auto',
             }}>
-              {unifiedSignal.generated ? '✅ GENERATED' : '⏳ NOT GENERATED'}
+              {generated ? '✅ GENERATED' : '⏳ NOT GENERATED'}
             </span>
           </div>
 
           {/* Reasons (if not generated) */}
-          {!unifiedSignal.generated && unifiedSignal.reasons?.length > 0 && (
-            <div style={{
-              display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10,
-            }}>
-              {unifiedSignal.reasons.map((r: string, i: number) => (
+          {!generated && reasons.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              {reasons.map((r: string, i: number) => (
                 <span key={i} style={{
                   padding: '3px 8px', borderRadius: 4,
                   fontSize: 9, color: 'var(--kt-muted)',
@@ -310,28 +338,32 @@ export default function Home() {
               ))}
             </div>
           )}
+        </div>
+      )}
 
-          {/* Layer Cards Grid */}
+      {/* ═══════════════════════════════════════════════════
+          ROW 3: Multi-Layer Analysis (6 Layer Cards)
+          ═══════════════════════════════════════════════════ */}
+      {unifiedSignal && (
+        <div className="kt-card kt-card-pad">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Shield size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Multi-Layer Analysis</span>
+            <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>XAUUSD</span>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
             {/* Weekly Profile */}
-            <div style={{
-              padding: 10, borderRadius: 6,
-              background: 'rgba(255,255,255,.02)',
-              border: '1px solid var(--kt-border)',
-            }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Weekly Profile</span>
                 <span style={{ fontSize: 10 }}>✅</span>
               </div>
-              <div style={{
-                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
-              }}>
+              <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6 }}>
                 <div style={{
                   width: `${Math.min((unifiedSignal.breakdown?.weeklyProfile?.score ?? 0), 100)}%`,
                   height: '100%', borderRadius: 2,
-                  background: (unifiedSignal.breakdown?.weeklyProfile?.score ?? 0) > 70 ? 'var(--kt-up)'
-                    : (unifiedSignal.breakdown?.weeklyProfile?.score ?? 0) >= 40 ? '#f59e0b'
-                    : 'var(--kt-dn)',
+                  background: (unifiedSignal.breakdown?.weeklyProfile?.score ?? 0) > 70 ? 'var(--kt-up)' : (unifiedSignal.breakdown?.weeklyProfile?.score ?? 0) >= 40 ? '#f59e0b' : 'var(--kt-dn)',
                   transition: 'width .4s',
                 }} />
               </div>
@@ -347,24 +379,16 @@ export default function Home() {
             </div>
 
             {/* H4 Signal */}
-            <div style={{
-              padding: 10, borderRadius: 6,
-              background: 'rgba(255,255,255,.02)',
-              border: '1px solid var(--kt-border)',
-            }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>H4 Signal</span>
                 <span style={{ fontSize: 10 }}>✅</span>
               </div>
-              <div style={{
-                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
-              }}>
+              <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6 }}>
                 <div style={{
                   width: `${Math.min((unifiedSignal.breakdown?.h4Signal?.score ?? 0), 100)}%`,
                   height: '100%', borderRadius: 2,
-                  background: (unifiedSignal.breakdown?.h4Signal?.score ?? 0) > 70 ? 'var(--kt-up)'
-                    : (unifiedSignal.breakdown?.h4Signal?.score ?? 0) >= 40 ? '#f59e0b'
-                    : 'var(--kt-dn)',
+                  background: (unifiedSignal.breakdown?.h4Signal?.score ?? 0) > 70 ? 'var(--kt-up)' : (unifiedSignal.breakdown?.h4Signal?.score ?? 0) >= 40 ? '#f59e0b' : 'var(--kt-dn)',
                   transition: 'width .4s',
                 }} />
               </div>
@@ -380,24 +404,16 @@ export default function Home() {
             </div>
 
             {/* H1 Confirm */}
-            <div style={{
-              padding: 10, borderRadius: 6,
-              background: 'rgba(255,255,255,.02)',
-              border: '1px solid var(--kt-border)',
-            }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>H1 Confirm</span>
                 <span style={{ fontSize: 10 }}>✅</span>
               </div>
-              <div style={{
-                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
-              }}>
+              <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6 }}>
                 <div style={{
                   width: `${Math.min((unifiedSignal.breakdown?.h1Confirm?.score ?? 0), 100)}%`,
                   height: '100%', borderRadius: 2,
-                  background: (unifiedSignal.breakdown?.h1Confirm?.score ?? 0) > 70 ? 'var(--kt-up)'
-                    : (unifiedSignal.breakdown?.h1Confirm?.score ?? 0) >= 40 ? '#f59e0b'
-                    : 'var(--kt-dn)',
+                  background: (unifiedSignal.breakdown?.h1Confirm?.score ?? 0) > 70 ? 'var(--kt-up)' : (unifiedSignal.breakdown?.h1Confirm?.score ?? 0) >= 40 ? '#f59e0b' : 'var(--kt-dn)',
                   transition: 'width .4s',
                 }} />
               </div>
@@ -413,24 +429,16 @@ export default function Home() {
             </div>
 
             {/* M15 Entry */}
-            <div style={{
-              padding: 10, borderRadius: 6,
-              background: 'rgba(255,255,255,.02)',
-              border: '1px solid var(--kt-border)',
-            }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>M15 Entry</span>
                 <span style={{ fontSize: 10 }}>✅</span>
               </div>
-              <div style={{
-                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
-              }}>
+              <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6 }}>
                 <div style={{
                   width: `${Math.min((unifiedSignal.breakdown?.m15Entry?.score ?? 0), 100)}%`,
                   height: '100%', borderRadius: 2,
-                  background: (unifiedSignal.breakdown?.m15Entry?.score ?? 0) > 70 ? 'var(--kt-up)'
-                    : (unifiedSignal.breakdown?.m15Entry?.score ?? 0) >= 40 ? '#f59e0b'
-                    : 'var(--kt-dn)',
+                  background: (unifiedSignal.breakdown?.m15Entry?.score ?? 0) > 70 ? 'var(--kt-up)' : (unifiedSignal.breakdown?.m15Entry?.score ?? 0) >= 40 ? '#f59e0b' : 'var(--kt-dn)',
                   transition: 'width .4s',
                 }} />
               </div>
@@ -446,24 +454,16 @@ export default function Home() {
             </div>
 
             {/* Fundamental */}
-            <div style={{
-              padding: 10, borderRadius: 6,
-              background: 'rgba(255,255,255,.02)',
-              border: '1px solid var(--kt-border)',
-            }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Fundamental</span>
                 <span style={{ fontSize: 10 }}>✅</span>
               </div>
-              <div style={{
-                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
-              }}>
+              <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6 }}>
                 <div style={{
                   width: `${Math.min((unifiedSignal.breakdown?.fundamental?.score ?? 0) * 5, 100)}%`,
                   height: '100%', borderRadius: 2,
-                  background: (unifiedSignal.breakdown?.fundamental?.score ?? 0) > 14 ? 'var(--kt-up)'
-                    : (unifiedSignal.breakdown?.fundamental?.score ?? 0) >= 8 ? '#f59e0b'
-                    : 'var(--kt-dn)',
+                  background: (unifiedSignal.breakdown?.fundamental?.score ?? 0) > 14 ? 'var(--kt-up)' : (unifiedSignal.breakdown?.fundamental?.score ?? 0) >= 8 ? '#f59e0b' : 'var(--kt-dn)',
                   transition: 'width .4s',
                 }} />
               </div>
@@ -479,299 +479,159 @@ export default function Home() {
             </div>
 
             {/* SMT */}
-            <div style={{
-              padding: 10, borderRadius: 6,
-              background: 'rgba(255,255,255,.02)',
-              border: '1px solid var(--kt-border)',
-            }}>
+            <div style={{ padding: 10, borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid var(--kt-border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--kt-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>SMT</span>
                 <span style={{ fontSize: 10 }}>—</span>
               </div>
-              <div style={{
-                width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6,
-              }}>
-                <div style={{
-                  width: '0%',
-                  height: '100%', borderRadius: 2,
-                  background: 'var(--kt-dn)',
-                  transition: 'width .4s',
-                }} />
+              <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden', marginBottom: 6 }}>
+                <div style={{ width: '0%', height: '100%', borderRadius: 2, background: 'var(--kt-dn)', transition: 'width .4s' }} />
               </div>
               <div style={{ fontSize: 'var(--sm)', fontWeight: 700, color: 'var(--kt-muted)' }}>
                 No Data
               </div>
-              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-                —
-              </div>
+              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>—</div>
             </div>
           </div>
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════════
-          MIDDLE: Key Levels + Live Rates
+          ROW 4: Key Levels + Events
           ═══════════════════════════════════════════════════ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
 
-        {/* Key Levels Card (XAU/USD from SMC) */}
+        {/* ── Key Levels ── */}
         <div className="kt-card kt-card-pad">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Target size={16} style={{ color: 'var(--kt-gold)' }} />
-            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>XAU/USD Key Levels</span>
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Key Levels</span>
           </div>
-          {xau ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {/* Signals */}
-              {(xau.signals ?? []).slice(0, 3).map((s: string, i: number) => (
-                <div key={i} style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>
-                  → {s}
-                </div>
-              ))}
-              {/* Structure */}
-              {xau.structure && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                  <span style={{
-                    fontSize: 9, padding: '2px 6px', borderRadius: 3,
-                    background: xau.structure.emaBias === 'bullish' ? 'rgba(34,197,94,.10)' : xau.structure.emaBias === 'bearish' ? 'rgba(239,68,68,.10)' : 'rgba(148,163,184,.08)',
-                    color: biasColor(xau.structure.emaBias),
-                  }}>EMA: {xau.structure.emaBias}</span>
-                  <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, background: 'rgba(255,255,255,.04)', color: 'var(--kt-muted)' }}>
-                    Price {xau.structure.priceVsEma} EMA
-                  </span>
-                </div>
-              )}
-              {/* Meta */}
-              {xau.meta && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                  <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>RSI {xau.meta.rsi?.toFixed(0)}</span>
-                  <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>ATR {xau.meta.atr?.toFixed(2)}</span>
-                </div>
-              )}
-              {/* Confidence Bar */}
-              <div style={{ marginTop: 4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                  <span style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase' }}>Confidence</span>
-                  <span style={{ fontSize: 9, fontWeight: 700, color: biasColor(xau.bias), fontFamily: 'var(--font-mono)' }}>{xau.confidence}%</span>
-                </div>
-                <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'var(--kt-bg)', overflow: 'hidden' }}>
-                  <div style={{ width: `${xau.confidence}%`, height: '100%', borderRadius: 2, background: biasColor(xau.bias), transition: 'width .4s' }} />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Loading SMC data…</span>
-          )}
-          <NavLink to="/decision" style={{ display: 'block', marginTop: 10, fontSize: 'var(--xs)', color: 'var(--kt-gold)', textDecoration: 'none', fontWeight: 600 }}>
-            Full Trade Plan →
-          </NavLink>
-        </div>
-
-        {/* Live Rates Watchlist (from MT5Live) */}
-        <div className="kt-card kt-card-pad">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Activity size={16} style={{ color: 'var(--kt-gold)' }} />
-            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Live Rates</span>
-            {conn ? (
-              <span className="badge-bull" style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
-                <Wifi size={10} /> Live
-              </span>
-            ) : (
-              <span className="badge-bear" style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
-                <WifiOff size={10} /> Offline
-              </span>
-            )}
-          </div>
-
-          {/* XAU/USD live */}
-          <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', marginBottom: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontWeight: 700, fontSize: 'var(--sm)', color: 'var(--kt-gold)', fontFamily: 'var(--font-mono)' }}>XAU/USD</span>
-              <span style={{ fontSize: 'var(--xxl)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
-                {price?.bid?.toFixed(2) ?? '—'}
-              </span>
-            </div>
-            {price && (
-              <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-                <span>Ask: {price.ask?.toFixed(2)}</span>
-                <span>Spread: {price.spread} pts</span>
-              </div>
-            )}
-          </div>
-
-          {/* Other pairs from SMC */}
-          {[eur, gbp].filter(Boolean).map((pair: any) => (
-            <div key={pair.symbol} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Week High */}
+            <div style={{
               padding: '8px 12px', borderRadius: 6,
               border: '1px solid var(--kt-border)',
-              marginBottom: 6,
             }}>
-              <div>
-                <span style={{ fontWeight: 600, fontSize: 'var(--sm)', fontFamily: 'var(--font-mono)' }}>{pair.symbol}</span>
-                <span style={{ marginLeft: 8, fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-                  {pair.premiumDiscount?.toUpperCase?.() ?? '—'}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', textTransform: 'uppercase' }}>Week High</span>
+                <span style={{ fontSize: 'var(--sm)', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--kt-up)' }}>
+                  {weekHigh?.toFixed(2) ?? '—'}
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {biasIcon(pair.bias)}
-                <span style={{ fontWeight: 700, fontSize: 'var(--sm)', color: biasColor(pair.bias), fontFamily: 'var(--font-mono)' }}>
-                  {pair.confidence}%
-                </span>
-              </div>
-            </div>
-          ))}
-
-          <NavLink to="/market" style={{ display: 'block', marginTop: 6, fontSize: 'var(--xs)', color: 'var(--kt-gold)', textDecoration: 'none', fontWeight: 600 }}>
-            Full Market View →
-          </NavLink>
-        </div>
-      </div>
-
-      {/* ═══════════════════════════════════════════════════
-          BOTTOM: Weekly Outlook + Open Positions
-          ═══════════════════════════════════════════════════ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-
-        {/* Weekly Outlook Summary */}
-        <div className="kt-card kt-card-pad">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Calendar size={16} style={{ color: 'var(--kt-gold)' }} />
-            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Weekly Outlook</span>
-            <span style={{
-              marginLeft: 'auto', padding: '2px 8px', borderRadius: 4,
-              fontSize: 'var(--xs)', fontWeight: 700, fontFamily: 'var(--font-mono)',
-              background: sentiment === 'Risk-On' ? 'rgba(34,197,94,.15)' : sentiment === 'Risk-Off' ? 'rgba(239,68,68,.15)' : 'rgba(245,158,11,.12)',
-              color: sentiment === 'Risk-On' ? 'var(--kt-up)' : sentiment === 'Risk-Off' ? 'var(--kt-dn)' : 'var(--kt-gold)',
-            }}>
-              {sentiment}
-            </span>
-          </div>
-
-          {/* Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
-            <div style={{ textAlign: 'center', padding: 6 }}>
-              <div style={{ fontSize: 'var(--md)', fontWeight: 700, color: highImpactCount > 3 ? '#f87171' : 'var(--kt-text)', fontFamily: 'var(--font-mono)' }}>{highImpactCount}</div>
-              <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>High Impact</div>
-            </div>
-            <div style={{ textAlign: 'center', padding: 6 }}>
-              <div style={{ fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{weekEvents.length}</div>
-              <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Total Events</div>
-            </div>
-            <div style={{ textAlign: 'center', padding: 6 }}>
-              <div style={{ fontSize: 'var(--md)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{macro?.regime ?? '—'}</div>
-              <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Regime</div>
-            </div>
-          </div>
-
-          {/* Risk Map */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6, marginBottom: 10 }}>
-            {days.map((day, i) => {
-              const bg = day.maxImpact >= 3 ? 'rgba(239,68,68,.12)' : day.maxImpact >= 2 ? 'rgba(245,158,11,.10)' : 'rgba(34,197,94,.08)'
-              const border = day.maxImpact >= 3 ? 'rgba(239,68,68,.35)' : day.maxImpact >= 2 ? 'rgba(245,158,11,.25)' : 'rgba(34,197,94,.20)'
-              const col = day.maxImpact >= 3 ? '#f87171' : day.maxImpact >= 2 ? '#f59e0b' : 'var(--kt-up)'
-              return (
-                <div key={i} style={{ padding: 8, borderRadius: 6, background: bg, border: `1px solid ${border}`, textAlign: 'center' }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>{DAY_SHORT[day.date.getDay()]}</div>
-                  <div style={{ fontSize: 'var(--md)', fontWeight: 800, color: col, fontFamily: 'var(--font-mono)' }}>{day.count}</div>
+              {weekHigh && currentBid && (
+                <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                  Distance: {distFromHigh}% from range top
                 </div>
-              )
-            })}
-          </div>
-
-          {macro && (
-            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(245,158,11,.06)', borderLeft: '3px solid var(--kt-gold)', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-              DXY: {macro.dxy?.toFixed(2) ?? '—'} · 10Y: {macro.dgs10?.toFixed(3) ?? '—'}%
+              )}
             </div>
-          )}
 
-          <NavLink to="/macro" style={{ display: 'block', marginTop: 10, fontSize: 'var(--xs)', color: 'var(--kt-gold)', textDecoration: 'none', fontWeight: 600 }}>
-            Full Outlook →
-          </NavLink>
+            {/* Week Low */}
+            <div style={{
+              padding: '8px 12px', borderRadius: 6,
+              border: '1px solid var(--kt-border)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', textTransform: 'uppercase' }}>Week Low</span>
+                <span style={{ fontSize: 'var(--sm)', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--kt-dn)' }}>
+                  {weekLow?.toFixed(2) ?? '—'}
+                </span>
+              </div>
+              {weekLow && currentBid && (
+                <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                  Distance: {distFromLow}% from range bottom
+                </div>
+              )}
+            </div>
+
+            {/* Current Price */}
+            <div style={{
+              padding: '8px 12px', borderRadius: 6,
+              background: 'rgba(245,158,11,.06)',
+              border: '1px solid rgba(245,158,11,.15)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', textTransform: 'uppercase' }}>Current Price</span>
+                <span style={{ fontSize: 'var(--sm)', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
+                  {currentBid?.toFixed(2) ?? '—'}
+                </span>
+              </div>
+            </div>
+
+            {/* Premium/Discount Zone */}
+            {premiumZone !== null && (
+              <div style={{
+                padding: '6px 12px', borderRadius: 6,
+                background: premiumZone ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)',
+                border: `1px solid ${premiumZone ? 'rgba(239,68,68,.20)' : 'rgba(34,197,94,.20)'}`,
+                textAlign: 'center',
+              }}>
+                <span style={{
+                  fontSize: 'var(--xs)', fontWeight: 700,
+                  fontFamily: 'var(--font-mono)',
+                  color: premiumZone ? 'var(--kt-dn)' : 'var(--kt-up)',
+                  textTransform: 'uppercase',
+                }}>
+                  {premiumZone ? 'Premium Zone — SELL territory' : 'Discount Zone — BUY territory'}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Open Positions */}
+        {/* ── Events Today ── */}
         <div className="kt-card kt-card-pad">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Shield size={16} style={{ color: 'var(--kt-gold)' }} />
-            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Open Positions</span>
+            <Clock size={16} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Events</span>
             <span style={{
               marginLeft: 'auto', padding: '2px 8px', borderRadius: 4,
-              fontSize: 'var(--xs)', fontWeight: 700, fontFamily: 'var(--font-mono)',
+              fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)',
               background: 'rgba(245,158,11,.12)', color: 'var(--kt-gold)',
             }}>
-              {activeTrades.length}
+              {todayEvents.length}
             </span>
           </div>
-
-          {activeTrades.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center' }}>
-              <p style={{ color: 'var(--kt-muted)', fontSize: 'var(--xs)', margin: 0 }}>No active trades</p>
+          {todayEvents.length === 0 ? (
+            <div style={{ padding: '12px 0', textAlign: 'center' }}>
+              <span style={{ color: 'var(--kt-muted)', fontSize: 'var(--xs)' }}>No events today</span>
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="kt-table" style={{ width: '100%' }}>
-                <thead>
-                  <tr>
-                    <th>Symbol</th>
-                    <th>Dir</th>
-                    <th>Entry</th>
-                    <th>SL</th>
-                    <th>TP1</th>
-                    <th>Lot</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeTrades.slice(0, 5).map((t: any) => (
-                    <tr key={t.id}>
-                      <td style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{t.symbol}</td>
-                      <td><span className={t.direction === 'long' ? 'badge-bull' : 'badge-bear'}>{t.direction.toUpperCase()}</span></td>
-                      <td style={{ fontFamily: 'var(--font-mono)' }}>{t.entry_price}</td>
-                      <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--kt-dn)' }}>{t.sl ?? '—'}</td>
-                      <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--kt-up)' }}>{t.tp1 ?? '—'}</td>
-                      <td style={{ fontFamily: 'var(--font-mono)' }}>{t.lot_size}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {todayEvents.slice(0, 8).map((ev: any, i: number) => {
+                const tierLabel = ev.tier === 'S' ? 'S+ CRITICAL' : ev.tier === 'A' ? 'A MEDIUM' : 'B LOW'
+                const tierColor = ev.tier === 'S' ? '#ef4444' : ev.tier === 'A' ? '#f59e0b' : '#94a3b8'
+                const tierBg = ev.tier === 'S' ? 'rgba(239,68,68,.12)' : ev.tier === 'A' ? 'rgba(245,158,11,.10)' : 'rgba(148,163,184,.06)'
+                return (
+                  <div key={i} style={{
+                    padding: '6px 10px', borderRadius: 6,
+                    border: '1px solid var(--kt-border)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span style={{
+                        padding: '1px 6px', borderRadius: 3,
+                        fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                        background: tierBg, color: tierColor,
+                      }}>
+                        {tierLabel}
+                      </span>
+                      <span style={{ fontSize: 'var(--xs)', fontWeight: 600, color: 'var(--kt-text)', flex: 1 }}>
+                        {ev.name}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+                      <span>{ev.time ?? '—'}</span>
+                      <span>{ev.country ?? '—'}</span>
+                      {ev.chain && <span>🔗 {ev.chain}</span>}
+                    </div>
+                    {ev.isToday && (
+                      <div style={{ marginTop: 2, fontSize: 8, color: 'var(--kt-gold)', fontWeight: 700 }}>TODAY</div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
-
-          <NavLink to="/portfolio" style={{ display: 'block', marginTop: 10, fontSize: 'var(--xs)', color: 'var(--kt-gold)', textDecoration: 'none', fontWeight: 600 }}>
-            Full Trade Manager →
-          </NavLink>
-        </div>
-      </div>
-
-      {/* ═══════════════════════════════════════════════════
-          MODULE GRID (Quick Nav)
-          ═══════════════════════════════════════════════════ */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <Zap size={16} style={{ color: 'var(--kt-gold)' }} />
-          <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Quick Nav</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
-          {[
-            { code: 'SMC', to: '/decision', title: 'SMC Engine' },
-            { code: 'MKT', to: '/market', title: 'Market' },
-            { code: 'MAC', to: '/macro', title: 'Macro' },
-            { code: 'CHT', to: '/chart', title: 'Chart Lab' },
-            { code: 'SCN', to: '/scanner', title: 'Scanner' },
-            { code: 'JRN', to: '/journal', title: 'Journal' },
-            { code: 'AI', to: '/ai', title: 'AI Assistant' },
-            { code: 'RTE', to: '/rates', title: 'Rates' },
-          ].map(m => (
-            <NavLink key={m.code} to={m.to} style={{
-              padding: '10px 14px', borderRadius: 8,
-              border: '1px solid var(--kt-border)',
-              textDecoration: 'none', color: 'var(--kt-text)',
-              transition: 'border-color .15s',
-            }}>
-              <div style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{m.code}</div>
-              <div style={{ fontSize: 'var(--sm)', fontWeight: 600 }}>{m.title}</div>
-            </NavLink>
-          ))}
         </div>
       </div>
     </div>
