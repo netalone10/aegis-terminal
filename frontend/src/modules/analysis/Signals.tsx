@@ -131,10 +131,11 @@ export default function Signals() {
   })
 
   const { data: history = [] } = useQuery<SignalHistory[]>({
-    queryKey: ['signal-history', symbol],
-    queryFn: () => api(`/api/signals/history/${symbol}?limit=20`),
+    queryKey: ['signal-history', symbol, Math.floor(Date.now() / 60_000)],
+    queryFn: () => api(`/api/signals/history/${symbol}?limit=20&_=${Date.now()}`),
     refetchInterval: 30_000,
     retry: false,
+    staleTime: 0,
   })
 
   return (
