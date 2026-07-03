@@ -1,7 +1,33 @@
-const API_BASE = 'https://aegis-terminal-api.akbar-rm10.workers.dev';
+// Dual API: CF Workers (existing) + VPS (engines)
+const CF_API = 'https://aegis-terminal-api.akbar-rm10.workers.dev';
+const VPS_API = 'http://10.3.20.6:3001';
+
+// Routes that go to VPS engine API
+const VPS_PREFIXES = [
+  '/api/unified-signal',
+  '/api/weekly-profile',
+  '/api/h4-profile',
+  '/api/h1-confirm',
+  '/api/entry',
+  '/api/fundamental-context',
+  '/api/economic-calendar',
+  '/api/week-type',
+  '/api/smt',
+  '/api/candles',
+  '/api/event-release',
+  '/api/signals/history',
+  '/api/query',
+];
+
+function getBase(path: string): string {
+  if (path.startsWith('http')) return '';
+  if (VPS_PREFIXES.some(p => path.startsWith(p))) return VPS_API;
+  return CF_API;
+}
 
 export async function api<T = any>(path: string, options?: RequestInit): Promise<T> {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
+  const base = getBase(path);
+  const url = path.startsWith('http') ? path : `${base}${path}`;
   const res = await fetch(url, {
     ...options,
     headers: {

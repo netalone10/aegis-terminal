@@ -1,0 +1,1506 @@
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '5mb' }));
+
+const pool = new Pool({
+  host: 'localhost',
+  port: 5432,
+  database: 'aegis_terminal',
+  user: 'aegis',
+  password: 'aegis_terminal_2026',
+  max: 10,
+});
+
+const SYMBOLS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD'];
+
+// ─── Killzones ────────────────────────────────────────────────
+const KILLZONES = [
+  { name: 'London Open', h4Time: '13:00', session: 'London', priority: 1 },
+  { name: 'London Lunch', h4Time: '17:00', session: 'London', priority: 2 },
+  { name: 'New York', h4Time: '21:00', session: 'New York', priority: 1 },
+];
+
+// ─── Day Profiles ─────────────────────────────────────────────
+const DAY_PROFILES = {
+  1: { day: 'monday', type: 'manipulation', fundamentalWeight: 0.3 },
+  2: { day: 'tuesday', type: 'continuation', fundamentalWeight: 0.8 },
+  3: { day: 'wednesday', type: 'reversal', fundamentalWeight: 1.2 },
+  4: { day: 'thursday', type: 'expansion', fundamentalWeight: 0.9 },
+  5: { day: 'friday', type: 'distribution', fundamentalWeight: 1.5 },
+};
+
+// ─── SMT Pairs ────────────────────────────────────────────────
+const SMT_PAIRS = [
+  { pair1: 'XAUUSD', pair2: 'USDJPY', correlation: 'inverse' },
+  { pair1: 'EURUSD', pair2: 'GBPUSD', correlation: 'positive' },
+];
+
+// ─── Helper Functions ─────────────────────────────────────────
+function getWeekStart(date) {
+  const d = new Date(date);
+  const day = d.getUTCDay();
+  const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+  d.setUTCDate(diff);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString().split('T')[0];
+}
+
+function getISOWeek(date) {
+  const d = new Date(date);
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+function isNearEvent(dateStr, minutesThreshold = 30) {
+  return pool.query(
+    `SELECT 1 FROM economic_events e
+     JOIN event_releases er ON er.event_id = e.id
+     WHERE er.release_date = $1
+     AND ABS(EXTRACT(EPOCH FROM ($2::timestamp - (er.release_date::text || ' ' || e.release_time_utc::text)::timestamp)) / 60) < $3
+     AND e.impact_tier IN ('S+', 'S', 'A')
+     LIMIT 1`,
+    [dateStr, dateStr, minutesThreshold]
+  ).then(r => r.rowCount > 0);
+}
+
+function detectSequence(open, high, low, close) {
+  return close > open ? 'OLHC' : 'OHLC';
+}
+
+function calcATR(candles, period = 14) {
+  if (!candles || candles.length < period + 1) return null;
+  const trs = [];
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i];
+    const pc = candles[i - 1];
+    const tr = Math.max(c.high - c.low, Math.abs(c.high - pc.close), Math.abs(c.low - pc.close));
+    trs.push(tr);
+  }
+  const slice = trs.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 0: DATA INGESTION
+// ═══════════════════════════════════════════════════════════════
+
+app.post('/api/candles/:symbol/:timeframe', async (req, res) => {
+  try {
+    const { symbol, timeframe } = req.params;
+    const candles = req.body.candles || [req.body];
+    if (!Array.isArray(candles) || candles.length === 0) {
+      return res.status(400).json({ error: 'Body must contain candles array' });
+    }
+    const inserted = [];
+    for (const c of candles) {
+      const { rows } = await pool.query(
+        `INSERT INTO historical_ohlc (symbol, timeframe, open, high, low, close, volume, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (symbol, timeframe, timestamp)
+         DO UPDATE SET open=$3, high=$4, low=$5, close=$6, volume=$7
+         RETURNING *`,
+        [symbol.toUpperCase(), timeframe.toUpperCase(), c.open, c.high, c.low, c.close, c.volume || 0, c.timestamp]
+      );
+      inserted.push(rows[0]);
+    }
+    res.json({ status: 'ok', data: inserted, count: inserted.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/event-release', async (req, res) => {
+  try {
+    const { event_id, release_date, consensus, previous, actual, revision_prev, affected_pairs_move } = req.body;
+    if (!event_id || !release_date || actual === undefined) {
+      return res.status(400).json({ error: 'Missing required fields: event_id, release_date, actual' });
+    }
+    const surprise_pct = (consensus && consensus !== 0) ? ((actual - consensus) / Math.abs(consensus)) : null;
+    const total_surprise = (surprise_pct || 0) + ((revision_prev && previous) ? (revision_prev - previous) / Math.abs(previous || 1) : 0);
+
+    const { rows } = await pool.query(
+      `INSERT INTO event_releases (event_id, release_date, consensus, previous, actual, revision_prev, surprise_pct, total_surprise, affected_pairs_move)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [event_id, release_date, consensus, previous, actual, revision_prev, surprise_pct, total_surprise, JSON.stringify(affected_pairs_move || {})]
+    );
+
+    // Update fundamental_bias for affected symbols
+    const eventRes = await pool.query('SELECT affected_symbols FROM economic_events WHERE id=$1', [event_id]);
+    if (eventRes.rows.length > 0 && eventRes.rows[0].affected_symbols) {
+      for (const sym of eventRes.rows[0].affected_symbols) {
+        const biasDir = surprise_pct > 0.05 ? 'bullish' : surprise_pct < -0.05 ? 'bearish' : 'neutral';
+        await pool.query(
+          `INSERT INTO fundamental_bias (symbol, bias_date, bias, score, last_surprise, last_surprise_direction)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (symbol, bias_date)
+           DO UPDATE SET last_surprise=$5, last_surprise_direction=$6`,
+          [sym, release_date, biasDir, surprise_pct * 100, surprise_pct, surprise_pct > 0 ? 'positive' : 'negative']
+        );
+      }
+    }
+    res.json({ status: 'ok', data: rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 1: WEEKLY PROFILE ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/weekly-profile/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+
+    // 1. Fetch W1 candles (current + previous 2 weeks)
+    const w1 = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='W1'
+       ORDER BY timestamp DESC LIMIT 3`, [symbol]
+    );
+    if (w1.rows.length === 0) {
+      return res.json({ status: 'ok', data: null, message: 'No weekly candle data' });
+    }
+
+    const currentWeek = w1.rows[0];
+    const prevWeek = w1.rows.length > 1 ? w1.rows[1] : null;
+
+    // 2. Fetch D1 candles for current week
+    const weekStart = getWeekStart(currentWeek.timestamp);
+    const d1 = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='D1'
+       AND timestamp >= $2::date AND timestamp < ($2::date + interval '7 days')
+       ORDER BY timestamp ASC`, [symbol, weekStart]
+    );
+    const dayCandles = d1.rows;
+
+    // 3. Detect model
+    let model = 'classic_expansion';
+    let modelConfidence = 50;
+
+    if (dayCandles.length >= 5) {
+      const mon = dayCandles[0];
+      const tue = dayCandles[1];
+      const wed = dayCandles[2];
+      const thu = dayCandles[3];
+      const fri = dayCandles[4];
+
+      const weekHigh = Math.max(...dayCandles.map(c => c.high));
+      const weekLow = Math.min(...dayCandles.map(c => c.low));
+
+      const tueExtremity = Math.max(
+        Math.abs(tue.high - weekHigh) < 0.01 ? 1 : 0,
+        Math.abs(tue.low - weekLow) < 0.01 ? 1 : 0
+      );
+      const wedExtremity = Math.max(
+        Math.abs(wed.high - weekHigh) < 0.01 ? 1 : 0,
+        Math.abs(wed.low - weekLow) < 0.01 ? 1 : 0
+      );
+      const thuExtremity = Math.max(
+        Math.abs(thu.high - weekHigh) < 0.01 ? 1 : 0,
+        Math.abs(thu.low - weekLow) < 0.01 ? 1 : 0
+      );
+
+      const monRange = mon.high - mon.low;
+      const tueRange = tue.high - tue.low;
+      const wedRange = wed.high - wed.low;
+      const avgRange = (monRange + tueRange + wedRange) / 3;
+
+      // Classic: Tue makes extreme, Wed-Thu expand
+      if (tueExtremity && (thu.high > wed.high || thu.low < wed.low)) {
+        model = 'classic_expansion';
+        modelConfidence = 75;
+      }
+      // Consolidation: Mon-Wed sideways, Thu extreme, Fri reverses
+      else if (avgRange < (monRange * 1.2) && thuExtremity) {
+        model = 'consolidation_reversal';
+        modelConfidence = 70;
+      }
+      // Midweek: Wed extreme, Thu-Fri reverse
+      else if (wedExtremity) {
+        model = 'midweek_reversal';
+        modelConfidence = 72;
+      }
+    }
+
+    // 4. Detect OHLC sequence
+    const sequence = detectSequence(currentWeek.open, currentWeek.high, currentWeek.low, currentWeek.close);
+
+    // 5. Rank days 1-5
+    const dayRankings = [];
+    const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+    for (let i = 0; i < 5; i++) {
+      const profile = DAY_PROFILES[i + 1];
+      let score = Math.round(profile.fundamentalWeight * 3);
+      if (i === 0) score = 1; // Monday always low
+      if (i === 4 && model !== 'consolidation_reversal') score = 2; // Friday low unless reversal week
+      score = Math.max(1, Math.min(5, score));
+      dayRankings.push({
+        day: dayNames[i],
+        score,
+        highProbability: score >= 4,
+        reason: `${profile.type} profile, weight ${profile.fundamentalWeight}x`,
+      });
+    }
+
+    // 6. Calculate confidence
+    let confidence = modelConfidence;
+    if (dayCandles.length >= 5) confidence += 10;
+    if (prevWeek) confidence += 5;
+    confidence = Math.min(100, confidence);
+
+    // 7. Store in weekly_profiles
+    const bias = sequence === 'OLHC' ? 'bullish' : 'bearish';
+    const weekType = model;
+    await pool.query(
+      `INSERT INTO weekly_profiles (symbol, week_start, model, bias, sequence, day_rankings, open, high, low, close, confidence, week_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (symbol, week_start) DO UPDATE SET model=$3, bias=$4, sequence=$5, day_rankings=$6, open=$7, high=$8, low=$9, close=$10, confidence=$11, week_type=$12
+       RETURNING id`,
+      [symbol, weekStart, model, bias, sequence, JSON.stringify(dayRankings),
+       currentWeek.open, currentWeek.high, currentWeek.low, currentWeek.close, confidence, weekType]
+    );
+
+    res.json({
+      status: 'ok',
+      data: {
+        symbol, model, bias, sequence, confidence,
+        weekHigh: currentWeek.high, weekLow: currentWeek.low,
+        dayRankings, weekType,
+        open: currentWeek.open, close: currentWeek.close,
+        previousWeek: prevWeek ? { open: prevWeek.open, high: prevWeek.high, low: prevWeek.low, close: prevWeek.close } : null,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 2: H4 PROFILING ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/h4-profile/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+
+    // Fetch H4 candles (last 30 to have enough for model detection)
+    const h4 = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='H4'
+       ORDER BY timestamp DESC LIMIT 30`, [symbol]
+    );
+    if (h4.rows.length < 5) {
+      return res.json({ status: 'ok', data: { activeKillzone: null, signals: [], profilingPhase: 'no_data' } });
+    }
+
+    const candles = h4.rows.reverse();
+    const now = new Date();
+    const utcHour = now.getUTCHours();
+
+    // Determine active killzone
+    let activeKillzone = null;
+    let profilingPhase = 'monitor';
+    for (const kz of KILLZONES) {
+      const kzHour = parseInt(kz.h4Time.split(':')[0]);
+      if (utcHour >= kzHour && utcHour < kzHour + 4) {
+        activeKillzone = kz;
+        profilingPhase = utcHour === kzHour ? 'monitor' : 'validate';
+        break;
+      }
+    }
+
+    // Detect H4 models on recent candles
+    const signals = [];
+    const recentCandles = candles.slice(-15);
+
+    for (let i = 4; i < recentCandles.length; i++) {
+      const c5 = recentCandles[i];
+
+      // Model 1: Candles 1-4 form structure, candle 5 sweeps + reverses
+      if (i >= 4) {
+        const c1to4 = recentCandles.slice(i - 4, i);
+        const structHigh = Math.max(...c1to4.map(c => c.high));
+        const structLow = Math.min(...c1to4.map(c => c.low));
+
+        // Sweep high then reverse (bearish)
+        if (c5.high > structHigh && c5.close < c5.open && c5.close < structHigh) {
+          signals.push({
+            model: 1, trigger_type: 'candle_5_reversal',
+            killzone: activeKillzone ? activeKillzone.name : null,
+            bias: 'bearish', key_level: c5.high, confidence: 70,
+            h4_candle_time: c5.timestamp,
+          });
+        }
+        // Sweep low then reverse (bullish)
+        if (c5.low < structLow && c5.close > c5.open && c5.close > structLow) {
+          signals.push({
+            model: 1, trigger_type: 'candle_5_reversal',
+            killzone: activeKillzone ? activeKillzone.name : null,
+            bias: 'bullish', key_level: c5.low, confidence: 70,
+            h4_candle_time: c5.timestamp,
+          });
+        }
+      }
+
+      // Model 2 & 3: Candles 1-8 form structure, candle 9 continues or sweeps
+      if (i >= 8) {
+        const c1to8 = recentCandles.slice(i - 8, i);
+        const structHigh = Math.max(...c1to8.map(c => c.high));
+        const structLow = Math.min(...c1to8.map(c => c.low));
+        const c9 = recentCandles[i];
+
+        // Model 3: candle 9 sweeps + reverses
+        if (c9.high > structHigh && c9.close < c9.open) {
+          signals.push({
+            model: 3, trigger_type: 'candle_9_reversal',
+            killzone: activeKillzone ? activeKillzone.name : null,
+            bias: 'bearish', key_level: c9.high, confidence: 65,
+            h4_candle_time: c9.timestamp,
+          });
+        }
+        if (c9.low < structLow && c9.close > c9.open) {
+          signals.push({
+            model: 3, trigger_type: 'candle_9_reversal',
+            killzone: activeKillzone ? activeKillzone.name : null,
+            bias: 'bullish', key_level: c9.low, confidence: 65,
+            h4_candle_time: c9.timestamp,
+          });
+        }
+
+        // Model 2: candle 9 continues (no sweep, just break)
+        if (c9.close > structHigh && c9.close > c9.open) {
+          signals.push({
+            model: 2, trigger_type: 'candle_9_continue',
+            killzone: activeKillzone ? activeKillzone.name : null,
+            bias: 'bullish', key_level: structHigh, confidence: 55,
+            h4_candle_time: c9.timestamp,
+          });
+        }
+        if (c9.close < structLow && c9.close < c9.open) {
+          signals.push({
+            model: 2, trigger_type: 'candle_9_continue',
+            killzone: activeKillzone ? activeKillzone.name : null,
+            bias: 'bearish', key_level: structLow, confidence: 55,
+            h4_candle_time: c9.timestamp,
+          });
+        }
+      }
+
+      // Model 4: Candle 1 is reversal, candles 2-4 confirm
+      if (i >= 4) {
+        const c1 = recentCandles[i - 4];
+        const c2to4 = recentCandles.slice(i - 3, i);
+        const avgBody = c2to4.reduce((sum, c) => sum + Math.abs(c.close - c.open), 0) / 3;
+        const c1Body = Math.abs(c1.close - c1.open);
+
+        // Bullish reversal: c1 big bullish, c2-4 continue up
+        if (c1.close > c1.open && c1Body > avgBody * 1.2) {
+          const allUp = c2to4.every(c => c.close > c.open);
+          if (allUp) {
+            signals.push({
+              model: 4, trigger_type: 'candle_1_reversal',
+              killzone: activeKillzone ? activeKillzone.name : null,
+              bias: 'bullish', key_level: c1.low, confidence: 60,
+              h4_candle_time: c1.timestamp,
+            });
+          }
+        }
+        // Bearish reversal: c1 big bearish, c2-4 continue down
+        if (c1.close < c1.open && c1Body > avgBody * 1.2) {
+          const allDown = c2to4.every(c => c.close < c.open);
+          if (allDown) {
+            signals.push({
+              model: 4, trigger_type: 'candle_1_reversal',
+              killzone: activeKillzone ? activeKillzone.name : null,
+              bias: 'bearish', key_level: c1.high, confidence: 60,
+              h4_candle_time: c1.timestamp,
+            });
+          }
+        }
+      }
+    }
+
+    // Get weekly profile for context
+    const wpRes = await pool.query(
+      `SELECT id FROM weekly_profiles WHERE symbol=$1 ORDER BY week_start DESC LIMIT 1`, [symbol]
+    );
+    const weeklyProfileId = wpRes.rows.length > 0 ? wpRes.rows[0].id : null;
+
+    // Store signals
+    const storedSignals = [];
+    for (const sig of signals.slice(-3)) {
+      const { rows } = await pool.query(
+        `INSERT INTO h4_signals (symbol, h4_candle_time, model, trigger_type, killzone, bias, key_level, confidence, weekly_profile_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [symbol, sig.h4_candle_time, sig.model, sig.trigger_type, sig.killzone, sig.bias, sig.key_level, sig.confidence, weeklyProfileId]
+      );
+      storedSignals.push(rows[0]);
+    }
+
+    res.json({
+      status: 'ok',
+      data: {
+        activeKillzone,
+        signals: storedSignals.length > 0 ? storedSignals : signals,
+        profilingPhase,
+        totalSignals: signals.length,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 3: H1 CONFIRMATION ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/h1-confirm/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const h4SignalId = req.query.h4SignalId;
+
+    // Get H4 signal
+    let h4Signal;
+    if (h4SignalId) {
+      const r = await pool.query('SELECT * FROM h4_signals WHERE id=$1', [h4SignalId]);
+      h4Signal = r.rows[0];
+    } else {
+      const r = await pool.query(
+        'SELECT * FROM h4_signals WHERE symbol=$1 ORDER BY created_at DESC LIMIT 1', [symbol]
+      );
+      h4Signal = r.rows[0];
+    }
+
+    if (!h4Signal) {
+      return res.json({ status: 'ok', data: { confirmed: false, message: 'No H4 signal found' } });
+    }
+
+    // Get H1 candles from current H4 candle time (4 H1 candles = 1 H4 candle)
+    const h4Time = h4Signal.h4_candle_time;
+    const h1 = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='H1'
+       AND timestamp >= $2::timestamp - interval '1 hour'
+       AND timestamp < $2::timestamp + interval '4 hours'
+       ORDER BY timestamp ASC`, [symbol, h4Time]
+    );
+
+    if (h1.rows.length < 2) {
+      return res.json({ status: 'ok', data: { confirmed: false, message: 'Insufficient H1 data' } });
+    }
+
+    const h1Candles = h1.rows;
+    const c1 = h1Candles[0];
+    const c2 = h1Candles.length > 1 ? h1Candles[1] : null;
+
+    // OH/OL Detection
+    let oholFormed = false;
+    let oholType = null;
+    let confirmationType = null;
+
+    if (c1 && c2) {
+      // OH (Open-High): C1 close > C2 close → bearish
+      if (c1.close > c2.close) {
+        oholFormed = true;
+        oholType = 'OH';
+        confirmationType = h4Signal.bias === 'bearish' ? 'reversal' : 'continue';
+      }
+      // OL (Open-Low): C1 close < C2 close → bullish
+      if (c1.close < c2.close) {
+        oholFormed = true;
+        oholType = 'OL';
+        confirmationType = h4Signal.bias === 'bullish' ? 'reversal' : 'continue';
+      }
+    }
+
+    // Check additional candles for stronger confirmation
+    let extraConfirmations = 0;
+    if (h1Candles.length >= 3) {
+      for (let i = 2; i < h1Candles.length; i++) {
+        if (h4Signal.bias === 'bullish' && h1Candles[i].close > h1Candles[i - 1].close) extraConfirmations++;
+        if (h4Signal.bias === 'bearish' && h1Candles[i].close < h1Candles[i - 1].close) extraConfirmations++;
+      }
+    }
+
+    const confirmed = oholFormed && extraConfirmations > 0;
+    const confidence = Math.min(100, h4Signal.confidence + (confirmed ? 15 : 0) + (extraConfirmations * 5));
+
+    // Determine confirmation model
+    let confirmModel = 1;
+    if (oholType === 'OL' && h4Signal.bias === 'bullish') confirmModel = 2;
+    if (oholType === 'OL' && h4Signal.bias === 'bearish') confirmModel = 3;
+    if (oholType === 'OH' && h4Signal.bias === 'bearish') confirmModel = 4;
+
+    // Store confirmation
+    const { rows } = await pool.query(
+      `INSERT INTO h1_confirmations (symbol, h4_signal_id, model, confirmation_type, ohol_formed, h1_candles, confidence)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [symbol, h4Signal.id, confirmModel, confirmationType, oholFormed, JSON.stringify(h1Candles.map(c => ({
+        timestamp: c.timestamp, open: c.open, high: c.high, low: c.low, close: c.close
+      }))), confidence]
+    );
+
+    // Update h4_signal confirmed status
+    if (confirmed) {
+      await pool.query('UPDATE h4_signals SET confirmed=true WHERE id=$1', [h4Signal.id]);
+    }
+
+    res.json({
+      status: 'ok',
+      data: {
+        confirmed,
+        confirmationType,
+        model: confirmModel,
+        oholFormed,
+        oholType,
+        h1Candles: h1Candles.length,
+        extraConfirmations,
+        confidence,
+        h4SignalId: h4Signal.id,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 4: M15 ENTRY ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/entry/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+
+    // Fetch M15 candles (last 40 for pattern detection)
+    const m15 = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='M15'
+       ORDER BY timestamp DESC LIMIT 40`, [symbol]
+    );
+    if (m15.rows.length < 10) {
+      return res.json({ status: 'ok', data: { ready: false, message: 'Insufficient M15 data' } });
+    }
+    const candles = m15.rows.reverse();
+
+    // --- PO3 Detection ---
+    // Accumulation: sideways range with ATR compression
+    const recentATR = calcATR(candles.slice(-20), 14);
+    const olderATR = calcATR(candles.slice(-40, -20), 14);
+    const atrCompression = recentATR && olderATR ? recentATR / olderATR : 1;
+
+    const last20 = candles.slice(-20);
+    const rangeHigh = Math.max(...last20.map(c => c.high));
+    const rangeLow = Math.min(...last20.map(c => c.low));
+    const rangeSize = rangeHigh - rangeLow;
+
+    let po3Phase = 'accumulation';
+    let manipulationSweep = null;
+
+    // Check if recent candles swept the range
+    const last5 = candles.slice(-5);
+    for (const c of last5) {
+      if (c.high > rangeHigh) {
+        po3Phase = 'manipulation';
+        manipulationSweep = { level: c.high, type: 'high' };
+        break;
+      }
+      if (c.low < rangeLow) {
+        po3Phase = 'manipulation';
+        manipulationSweep = { level: c.low, type: 'low' };
+        break;
+      }
+    }
+
+    // If manipulation detected, check for distribution (impulse)
+    if (po3Phase === 'manipulation' && manipulationSweep) {
+      const lastCandle = candles[candles.length - 1];
+      const impulseSize = Math.abs(lastCandle.close - lastCandle.open);
+      if (impulseSize > rangeSize * 0.3) {
+        po3Phase = 'distribution';
+      }
+    }
+
+    // --- MSS Detection ---
+    let mss = null;
+    // Find swing highs and lows in last 20 candles
+    const swingHighs = [];
+    const swingLows = [];
+    for (let i = 2; i < last20.length - 2; i++) {
+      if (last20[i].high > last20[i - 1].high && last20[i].high > last20[i + 1].high &&
+          last20[i].high > last20[i - 2].high && last20[i].high > last20[i + 2].high) {
+        swingHighs.push({ price: last20[i].high, index: i });
+      }
+      if (last20[i].low < last20[i - 1].low && last20[i].low < last20[i + 1].low &&
+          last20[i].low < last20[i - 2].low && last20[i].low < last20[i + 2].low) {
+        swingLows.push({ price: last20[i].low, index: i });
+      }
+    }
+
+    const lastCandle = candles[candles.length - 1];
+    const prevCandle = candles[candles.length - 2];
+
+    // Bullish MSS: break above previous lower high + displacement
+    if (swingHighs.length > 0) {
+      const lastSwingHigh = swingHighs[swingHighs.length - 1];
+      if (lastCandle.close > lastSwingHigh.price && prevCandle.close <= lastSwingHigh.price) {
+        const displacement = Math.abs(lastCandle.close - lastCandle.open) > (recentATR || rangeSize * 0.05);
+        if (displacement) {
+          mss = { type: 'bullish_mss', level: lastSwingHigh.price, displacement: true, timestamp: lastCandle.timestamp };
+        }
+      }
+    }
+
+    // Bearish MSS: break below previous higher low + displacement
+    if (swingLows.length > 0 && !mss) {
+      const lastSwingLow = swingLows[swingLows.length - 1];
+      if (lastCandle.close < lastSwingLow.price && prevCandle.close >= lastSwingLow.price) {
+        const displacement = Math.abs(lastCandle.close - lastCandle.open) > (recentATR || rangeSize * 0.05);
+        if (displacement) {
+          mss = { type: 'bearish_mss', level: lastSwingLow.price, displacement: true, timestamp: lastCandle.timestamp };
+        }
+      }
+    }
+
+    // --- FVG Detection ---
+    let fvgStage = 0;
+    let fvgType = null;
+    let fvgTop = null;
+    let fvgBottom = null;
+
+    if (mss) {
+      const isBullish = mss.type === 'bullish_mss';
+      let fvgsFound = 0;
+
+      // Scan for FVGs after MSS
+      const mssIndex = candles.findIndex(c => c.timestamp === mss.timestamp);
+      if (mssIndex >= 0) {
+        for (let i = mssIndex + 1; i < candles.length - 1 && fvgsFound < 2; i++) {
+          const prev = candles[i - 1];
+          const curr = candles[i];
+          const next = candles[i + 1];
+
+          if (isBullish) {
+            // Bullish FVG: gap between prev high and next low (next low > prev high)
+            if (next.low > prev.high && curr.close > curr.open) {
+              fvgsFound++;
+              if (fvgsFound === 1) {
+                // Stage 1: don't enter
+              }
+              if (fvgsFound === 2) {
+                fvgStage = 2;
+                fvgType = 'bull';
+                fvgTop = next.low;
+                fvgBottom = prev.high;
+              }
+            }
+          } else {
+            // Bearish FVG: gap between prev low and next high (next high < prev low)
+            if (next.high < prev.low && curr.close < curr.open) {
+              fvgsFound++;
+              if (fvgsFound === 1) {
+                // Stage 1: don't enter
+              }
+              if (fvgsFound === 2) {
+                fvgStage = 2;
+                fvgType = 'bear';
+                fvgTop = prev.low;
+                fvgBottom = next.high;
+              }
+            }
+          }
+        }
+
+        // If only 1 FVG found, mark as stage 1
+        if (fvgsFound === 1 && fvgStage === 0) {
+          fvgStage = 1;
+          fvgType = isBullish ? 'bull' : 'bear';
+        }
+      }
+    }
+
+    // --- Generate Entry Signal ---
+    let ready = false;
+    let entrySignal = null;
+
+    if (mss && fvgStage === 2) {
+      const isLong = mss.type === 'bullish_mss';
+      const entry = isLong ? fvgBottom : fvgTop;
+      const sl = isLong ? mss.level - (recentATR || rangeSize * 0.05) : mss.level + (recentATR || rangeSize * 0.05);
+      const risk = Math.abs(entry - sl);
+      const tp = isLong ? entry + risk * 2.5 : entry - risk * 2.5;
+      const rr = Math.abs(tp - entry) / Math.max(risk, 0.0001);
+
+      if (rr >= 2) {
+        ready = true;
+        const confluence = [];
+        if (po3Phase === 'distribution') confluence.push('po3_distribution');
+        if (mss.displacement) confluence.push('displacement');
+        if (fvgStage === 2) confluence.push('fvg_stage_2');
+
+        // Get weekly profile
+        const wpRes = await pool.query(
+          `SELECT id FROM weekly_profiles WHERE symbol=$1 ORDER BY week_start DESC LIMIT 1`, [symbol]
+        );
+        const weeklyProfileId = wpRes.rows.length > 0 ? wpRes.rows[0].id : null;
+
+        // Get latest h4_signal
+        const h4Res = await pool.query(
+          `SELECT id FROM h4_signals WHERE symbol=$1 AND bias=$2 ORDER BY created_at DESC LIMIT 1`,
+          [symbol, isLong ? 'bullish' : 'bearish']
+        );
+        const h4SignalId = h4Res.rows.length > 0 ? h4Res.rows[0].id : null;
+
+        // Get latest h1_confirmation
+        const h1Res = await pool.query(
+          `SELECT id FROM h1_confirmations WHERE symbol=$1 ORDER BY created_at DESC LIMIT 1`, [symbol]
+        );
+        const h1ConfirmationId = h1Res.rows.length > 0 ? h1Res.rows[0].id : null;
+
+        entrySignal = {
+          symbol,
+          direction: isLong ? 'long' : 'short',
+          entry: Math.round(entry * 10000) / 10000,
+          sl: Math.round(sl * 10000) / 10000,
+          tp: Math.round(tp * 10000) / 10000,
+          rr: Math.round(rr * 100) / 100,
+          po3_phase: po3Phase,
+          mss_level: mss.level,
+          fvg_stage: fvgStage,
+          confluence,
+          confidence: Math.min(100, 60 + (fvgStage === 2 ? 15 : 0) + (po3Phase === 'distribution' ? 10 : 0)),
+          weekly_profile_id: weeklyProfileId,
+          h4_signal_id: h4SignalId,
+          h1_confirmation_id: h1ConfirmationId,
+        };
+
+        // Store
+        const { rows } = await pool.query(
+          `INSERT INTO entry_signals (symbol, direction, entry, sl, tp, rr, po3_phase, mss_level, fvg_stage, confluence, confidence,
+           weekly_profile_id, h4_signal_id, h1_confirmation_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+          [entrySignal.symbol, entrySignal.direction, entrySignal.entry, entrySignal.sl, entrySignal.tp, entrySignal.rr,
+           entrySignal.po3_phase, entrySignal.mss_level, entrySignal.fvg_stage, JSON.stringify(entrySignal.confluence),
+           entrySignal.confidence, entrySignal.weekly_profile_id, entrySignal.h4_signal_id, entrySignal.h1_confirmation_id]
+        );
+        entrySignal.id = rows[0].id;
+      }
+    }
+
+    res.json({
+      status: 'ok',
+      data: {
+        ready,
+        signal: entrySignal,
+        po3Phase,
+        mssFormed: !!mss,
+        fvgStage2Available: fvgStage === 2,
+        mss: mss || null,
+        atrCompression: Math.round(atrCompression * 100) / 100,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 5: FUNDAMENTAL ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/fundamental-context/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const dayOfWeek = now.getUTCDay() || 7; // 1=Mon..7=Sun
+    const weekStart = getWeekStart(now);
+
+    // 1. Check week_classifications
+    let weekClass = null;
+    const wcRes = await pool.query(
+      'SELECT * FROM week_classifications WHERE week_start=$1', [weekStart]
+    );
+    if (wcRes.rows.length > 0) {
+      weekClass = wcRes.rows[0];
+    } else {
+      // Compute from economic_events
+      const events = await pool.query(
+        `SELECT e.impact_tier, COUNT(*) as cnt
+         FROM economic_events e
+         WHERE EXISTS (
+           SELECT 1 FROM event_releases er
+           WHERE er.event_id = e.id
+           AND er.release_date >= $1::date
+           AND er.release_date < ($1::date + interval '7 days')
+         )
+         GROUP BY e.impact_tier`, [weekStart]
+      );
+
+      const tierCounts = {};
+      for (const r of events.rows) tierCounts[r.impact_tier] = parseInt(r.cnt);
+
+      let weekType = 'LOW_IMPACT';
+      let volMult = 0.7;
+      let maxPos = 5;
+      let slWiden = 0.8;
+      let entryRule = 'aggressive';
+      let bestStrategy = 'mean_reversion';
+
+      if ((tierCounts['S+'] || 0) >= 1 || (tierCounts['S'] || 0) >= 1) {
+        weekType = 'HIGH_IMPACT'; volMult = 1.8; maxPos = 2; slWiden = 1.5;
+        entryRule = 'event_only'; bestStrategy = 'event_breakout_or_fade';
+      } else if ((tierCounts['A'] || 0) >= 1) {
+        weekType = 'MEDIUM_IMPACT'; volMult = 1.3; maxPos = 3; slWiden = 1.2;
+        entryRule = 'standard_with_caution'; bestStrategy = 'trend_following';
+      } else if ((tierCounts['B'] || 0) >= 2 || (tierCounts['C'] || 0) >= 3) {
+        weekType = 'LOW_MEDIUM_IMPACT'; volMult = 1.0; maxPos = 4; slWiden = 1.0;
+        entryRule = 'standard'; bestStrategy = 'standard';
+      }
+
+      weekClass = { week_type: weekType, volatility_multiplier: volMult, max_positions: maxPos,
+                     stop_loss_widen: slWiden, entry_rule: entryRule, best_strategy: bestStrategy,
+                     tier_counts: tierCounts };
+    }
+
+    // 2. Day profile
+    const dayProfile = DAY_PROFILES[dayOfWeek] || DAY_PROFILES[1];
+
+    // 3. Upcoming events (next 48h)
+    const upcomingRes = await pool.query(
+      `SELECT e.event_name, e.impact_tier, e.release_time_utc, er.release_date, er.consensus, er.actual
+       FROM economic_events e
+       LEFT JOIN event_releases er ON er.event_id = e.id
+       WHERE er.release_date >= $1::date
+       AND er.release_date < ($1::date + interval '3 days')
+       AND e.impact_tier IN ('S+', 'S', 'A', 'B')
+       ORDER BY er.release_date, e.release_time_utc`, [today]
+    );
+    const upcomingEvents = upcomingRes.rows;
+
+    // 4. Event proximity check
+    const nearEvent = await isNearEvent(today, 30);
+
+    // 5. Last event release surprise
+    const lastReleaseRes = await pool.query(
+      `SELECT er.surprise_pct, er.total_surprise, e.event_name, er.release_date
+       FROM event_releases er
+       JOIN economic_events e ON e.id = er.event_id
+       WHERE er.release_date <= $1::date
+       AND ($2 = ANY(e.affected_symbols) OR e.affected_symbols @> ARRAY[$2]::text[])
+       ORDER BY er.release_date DESC LIMIT 1`, [today, symbol]
+    );
+    const lastRelease = lastReleaseRes.rows.length > 0 ? lastReleaseRes.rows[0] : null;
+
+    // 6. Calculate bias score
+    let biasScore = dayProfile.fundamentalWeight;
+    biasScore *= weekClass.volatility_multiplier || 1.0;
+
+    if (nearEvent) {
+      return res.json({
+        status: 'ok',
+        data: {
+          symbol, bias: 'neutral', score: 0, day_type: dayProfile.type,
+          day_fundamental_weight: dayProfile.fundamentalWeight,
+          upcoming_events: upcomingEvents, event_proximity: true,
+          reason: 'Within 30min of high-impact event — no entry',
+          week_type: weekClass,
+        },
+      });
+    }
+
+    if (lastRelease && lastRelease.surprise_pct) {
+      const surprise = parseFloat(lastRelease.surprise_pct);
+      if (surprise > 0.1) biasScore += 0.3;
+      else if (surprise < -0.1) biasScore -= 0.3;
+    }
+
+    // Direction based on symbol
+    let bias = 'neutral';
+    const threshold = 0.3;
+    if (['EURUSD', 'GBPUSD', 'XAUUSD', 'BTCUSD'].includes(symbol)) {
+      bias = biasScore > threshold ? 'bullish' : biasScore < -threshold ? 'bearish' : 'neutral';
+    } else if (symbol === 'USDJPY') {
+      bias = biasScore > threshold ? 'bullish' : biasScore < -threshold ? 'bearish' : 'neutral';
+    }
+
+    // Store
+    await pool.query(
+      `INSERT INTO fundamental_bias (symbol, bias_date, bias, score, day_type, day_fundamental_weight, upcoming_events, event_proximity, last_surprise, last_surprise_direction)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (symbol, bias_date) DO UPDATE SET bias=$3, score=$4, day_type=$5, day_fundamental_weight=$6, upcoming_events=$7, event_proximity=$8, last_surprise=$9, last_surprise_direction=$10`,
+      [symbol, today, bias, Math.round(biasScore * 100) / 100, dayProfile.type, dayProfile.fundamentalWeight,
+       JSON.stringify(upcomingEvents.map(e => e.event_name)), false,
+       lastRelease ? lastRelease.surprise_pct : null,
+       lastRelease && lastRelease.surprise_pct > 0 ? 'positive' : 'negative']
+    );
+
+    res.json({
+      status: 'ok',
+      data: {
+        symbol, bias, score: Math.round(biasScore * 100) / 100,
+        day_type: dayProfile.type, day_fundamental_weight: dayProfile.fundamentalWeight,
+        upcoming_events: upcomingEvents, event_proximity: false,
+        last_surprise: lastRelease ? { event: lastRelease.event_name, surprise: lastRelease.surprise_pct, date: lastRelease.release_date } : null,
+        week_type: weekClass,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Economic calendar for a given week
+app.get('/api/economic-calendar/:week', async (req, res) => {
+  try {
+    const week = req.params.week; // YYYY-MM-DD format (any day in the week)
+    const weekStart = getWeekStart(week);
+    const { rows } = await pool.query(
+      `SELECT e.*, er.release_date, er.consensus, er.previous, er.actual, er.surprise_pct
+       FROM economic_events e
+       LEFT JOIN event_releases er ON er.event_id = e.id
+       WHERE er.release_date >= $1::date
+       AND er.release_date < ($1::date + interval '7 days')
+       ORDER BY er.release_date, e.release_time_utc`, [weekStart]
+    );
+    res.json({ status: 'ok', data: rows, week_start: weekStart });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 6: SMT ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/smt/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+
+    // Find relevant SMT pair
+    const smtPair = SMT_PAIRS.find(p => p.pair1 === symbol || p.pair2 === symbol);
+    if (!smtPair) {
+      return res.json({ status: 'ok', data: { signals: [], message: 'No SMT pair mapping for ' + symbol } });
+    }
+
+    // Fetch H4 candles for both pairs
+    const p1 = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='H4' ORDER BY timestamp DESC LIMIT 10`, [smtPair.pair1]
+    );
+    const p2 = await pool.query(
+      `SELECT * FROM historical_ohlc WHERE symbol=$1 AND timeframe='H4' ORDER BY timestamp DESC LIMIT 10`, [smtPair.pair2]
+    );
+
+    if (p1.rows.length < 3 || p2.rows.length < 3) {
+      return res.json({ status: 'ok', data: { signals: [] } });
+    }
+
+    const p1Candles = p1.rows.reverse();
+    const p2Candles = p2.rows.reverse();
+
+    const signals = [];
+
+    // SMT Detection: check last few candles for divergence
+    for (let i = 2; i < Math.min(p1Candles.length, p2Candles.length); i++) {
+      const p1SweptHigh = p1Candles[i].high > p1Candles[i - 1].high && p1Candles[i].high > p1Candles[i - 2].high;
+      const p2SweptHigh = p2Candles[i].high > p2Candles[i - 1].high && p2Candles[i].high > p2Candles[i - 2].high;
+      const p1SweptLow = p1Candles[i].low < p1Candles[i - 1].low && p1Candles[i].low < p1Candles[i - 2].low;
+      const p2SweptLow = p2Candles[i].low < p2Candles[i - 1].low && p2Candles[i].low < p2Candles[i - 2].low;
+
+      if (smtPair.correlation === 'inverse') {
+        // Inverse pair (XAUUSD vs USDJPY): one sweeps high but other fails = divergence
+        if (p1SweptHigh && !p2SweptHigh) {
+          signals.push({
+            pair1: smtPair.pair1, pair2: smtPair.pair2,
+            type: 'bearish_smt',
+            description: `${smtPair.pair1} swept high but ${smtPair.pair2} failed — bearish SMT`,
+            confidence: 65,
+            timestamp: p1Candles[i].timestamp,
+          });
+        }
+        if (!p1SweptHigh && p2SweptHigh) {
+          signals.push({
+            pair1: smtPair.pair1, pair2: smtPair.pair2,
+            type: 'bullish_smt',
+            description: `${smtPair.pair2} swept high but ${smtPair.pair1} failed — bullish SMT`,
+            confidence: 65,
+            timestamp: p2Candles[i].timestamp,
+          });
+        }
+      } else {
+        // Positive pair (EURUSD vs GBPUSD): one sweeps high but other fails = divergence
+        if (p1SweptHigh && !p2SweptHigh) {
+          signals.push({
+            pair1: smtPair.pair1, pair2: smtPair.pair2,
+            type: 'bearish_smt',
+            description: `${smtPair.pair1} swept high but ${smtPair.pair2} failed — bearish divergence`,
+            confidence: 60,
+            timestamp: p1Candles[i].timestamp,
+          });
+        }
+        if (!p1SweptHigh && p2SweptHigh) {
+          signals.push({
+            pair1: smtPair.pair1, pair2: smtPair.pair2,
+            type: 'bullish_smt',
+            description: `${smtPair.pair2} swept high but ${smtPair.pair1} failed — bullish divergence`,
+            confidence: 60,
+            timestamp: p2Candles[i].timestamp,
+          });
+        }
+      }
+
+      // Low sweep divergence
+      if (p1SweptLow && !p2SweptLow) {
+        signals.push({
+          pair1: smtPair.pair1, pair2: smtPair.pair2,
+          type: 'bullish_smt',
+          description: `${smtPair.pair1} swept low but ${smtPair.pair2} failed — bullish SMT`,
+          confidence: 60,
+          timestamp: p1Candles[i].timestamp,
+        });
+      }
+      if (!p1SweptLow && p2SweptLow) {
+        signals.push({
+          pair1: smtPair.pair1, pair2: smtPair.pair2,
+          type: 'bearish_smt',
+          description: `${smtPair.pair2} swept low but ${smtPair.pair1} failed — bearish SMT`,
+          confidence: 60,
+          timestamp: p2Candles[i].timestamp,
+        });
+      }
+    }
+
+    // Store recent signals
+    const storedSignals = [];
+    for (const sig of signals.slice(-3)) {
+      const { rows } = await pool.query(
+        `INSERT INTO smt_signals (pair1, pair2, type, description, confidence)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [sig.pair1, sig.pair2, sig.type, sig.description, sig.confidence]
+      );
+      storedSignals.push(rows[0]);
+    }
+
+    // Also store correlation snapshot
+    const p1Returns = [];
+    const p2Returns = [];
+    for (let i = 1; i < Math.min(p1Candles.length, p2Candles.length); i++) {
+      p1Returns.push((p1Candles[i].close - p1Candles[i - 1].close) / p1Candles[i - 1].close);
+      p2Returns.push((p2Candles[i].close - p2Candles[i - 1].close) / p2Candles[i - 1].close);
+    }
+
+    let correlation = 0;
+    if (p1Returns.length > 2) {
+      const mean1 = p1Returns.reduce((a, b) => a + b, 0) / p1Returns.length;
+      const mean2 = p2Returns.reduce((a, b) => a + b, 0) / p2Returns.length;
+      let cov = 0, var1 = 0, var2 = 0;
+      for (let i = 0; i < p1Returns.length; i++) {
+        cov += (p1Returns[i] - mean1) * (p2Returns[i] - mean2);
+        var1 += (p1Returns[i] - mean1) ** 2;
+        var2 += (p2Returns[i] - mean2) ** 2;
+      }
+      correlation = var1 && var2 ? cov / Math.sqrt(var1 * var2) : 0;
+    }
+
+    const regime = Math.abs(correlation) > 0.6 ? 'strong' : Math.abs(correlation) > 0.3 ? 'moderate' : 'weak';
+    await pool.query(
+      `INSERT INTO correlation_snapshots (snapshot_time, pair1, pair2, correlation, regime, lookback_hours)
+       VALUES (NOW(), $1, $2, $3, $4, 40)`,
+      [smtPair.pair1, smtPair.pair2, Math.round(correlation * 1000) / 1000, regime]
+    );
+
+    res.json({
+      status: 'ok',
+      data: {
+        signals: storedSignals.length > 0 ? storedSignals : signals,
+        correlation: Math.round(correlation * 1000) / 1000,
+        regime,
+        pair: smtPair,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 7: UNIFIED SIGNAL GENERATOR
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/unified-signal/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const now = new Date();
+    const dayOfWeek = now.getUTCDay() || 7;
+
+    // Day filter: no Monday, no NFP Friday
+    const isMonday = dayOfWeek === 1;
+    const isFriday = dayOfWeek === 5;
+
+    // Check for NFP week (first Friday of month)
+    let isNFPWeek = false;
+    if (isFriday) {
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const firstFriday = new Date(firstOfMonth);
+      while (firstFriday.getUTCDay() !== 5) firstFriday.setUTCDate(firstFriday.getUTCDate() + 1);
+      if (now.getUTCDate() <= firstFriday.getUTCDate() + 1) isNFPWeek = true;
+    }
+
+    if (isMonday) {
+      return res.json({ status: 'ok', data: { generated: false, reason: 'Monday filter — no entries on Monday' } });
+    }
+    if (isFriday && isNFPWeek) {
+      return res.json({ status: 'ok', data: { generated: false, reason: 'NFP Friday — no entries' } });
+    }
+
+    // Event proximity check
+    const today = now.toISOString().split('T')[0];
+    const nearEvent = await isNearEvent(today, 30);
+    if (nearEvent) {
+      return res.json({ status: 'ok', data: { generated: false, reason: 'Within 30min of high-impact event' } });
+    }
+
+    // Get all layers
+    const wpRes = await pool.query(
+      'SELECT * FROM weekly_profiles WHERE symbol=$1 ORDER BY week_start DESC LIMIT 1', [symbol]
+    );
+    const h4Res = await pool.query(
+      'SELECT * FROM h4_signals WHERE symbol=$1 ORDER BY created_at DESC LIMIT 1', [symbol]
+    );
+    const h1Res = await pool.query(
+      'SELECT * FROM h1_confirmations WHERE symbol=$1 ORDER BY created_at DESC LIMIT 1', [symbol]
+    );
+    const entryRes = await pool.query(
+      'SELECT * FROM entry_signals WHERE symbol=$1 ORDER BY created_at DESC LIMIT 1', [symbol]
+    );
+    const fundRes = await pool.query(
+      'SELECT * FROM fundamental_bias WHERE symbol=$1 ORDER BY bias_date DESC LIMIT 1', [symbol]
+    );
+    const smtRes = await pool.query(
+      'SELECT * FROM smt_signals WHERE (pair1=$1 OR pair2=$1) ORDER BY created_at DESC LIMIT 1', [symbol]
+    );
+
+    const wp = wpRes.rows[0] || null;
+    const h4 = h4Res.rows[0] || null;
+    const h1 = h1Res.rows[0] || null;
+    const entry = entryRes.rows[0] || null;
+    const fund = fundRes.rows[0] || null;
+    const smt = smtRes.rows[0] || null;
+
+    // Layer scores (0-100)
+    const layer1Score = wp ? (wp.confidence || 50) : 30;
+    const layer2Score = h4 ? (h4.confidence || 50) : 30;
+    const layer3Score = h1 ? (h1.confidence || 50) : 30;
+    const layer4Score = entry ? (entry.confidence || 50) : 30;
+    const fundamentalScore = fund ? Math.abs(parseFloat(fund.score) || 0) * 10 : 20;
+    const smtScore = smt ? (smt.confidence || 50) : 20;
+
+    // Weighted confidence
+    const totalConfidence = Math.round(
+      (layer1Score * 0.25) +
+      (layer2Score * 0.20) +
+      (layer3Score * 0.15) +
+      (layer4Score * 0.20) +
+      (fundamentalScore * 0.10) +
+      (smtScore * 0.10)
+    );
+
+    // Determine direction from layers
+    let direction = 'neutral';
+    const biasVotes = [];
+    if (wp && wp.bias) biasVotes.push(wp.bias);
+    if (h4 && h4.bias) biasVotes.push(h4.bias);
+    if (h1 && h1.confirmation_type) biasVotes.push(h1.confirmation_type === 'reversal' ? (wp?.bias === 'bullish' ? 'bearish' : 'bullish') : wp?.bias || 'neutral');
+    if (entry && entry.direction) biasVotes.push(entry.direction === 'long' ? 'bullish' : 'bearish');
+    if (fund && fund.bias) biasVotes.push(fund.bias);
+    if (smt && smt.type) biasVotes.push(smt.type.includes('bullish') ? 'bullish' : 'bearish');
+
+    const bullVotes = biasVotes.filter(b => b === 'bullish').length;
+    const bearVotes = biasVotes.filter(b => b === 'bearish').length;
+    if (bullVotes > bearVotes) direction = 'bullish';
+    else if (bearVotes > bullVotes) direction = 'bearish';
+
+    // Minimum threshold: 65%
+    const generated = totalConfidence >= 65 && entry && entry.rr >= 2;
+
+    // Fundamental alignment check
+    let fundamentalAligned = true;
+    if (fund && fund.bias && fund.bias !== 'neutral' && direction !== 'neutral') {
+      fundamentalAligned = fund.bias === direction;
+    }
+
+    const reason = [];
+    if (totalConfidence < 65) reason.push(`Confidence ${totalConfidence}% below 65% threshold`);
+    if (!entry) reason.push('No entry signal available');
+    if (entry && entry.rr < 2) reason.push(`R:R ${entry.rr} below 2R minimum`);
+    if (!fundamentalAligned) reason.push('Fundamental bias misaligned');
+
+    // Store unified signal
+    let storedSignal = null;
+    if (generated && fundamentalAligned) {
+      const weekType = weekClass ? weekClass.week_type || 'LOW_IMPACT' : 'LOW_IMPACT';
+      const maxPos = weekClass ? weekClass.max_positions || 5 : 5;
+      const slAdj = weekClass ? weekClass.stop_loss_widen || 1.0 : 1.0;
+
+      const { rows } = await pool.query(
+        `INSERT INTO unified_signals (
+           symbol, direction, entry_price, stop_loss, take_profit, rr_ratio,
+           layer1_score, layer2_score, layer3_score, layer4_score,
+           fundamental_score, smt_score, total_confidence,
+           confluence_factors, week_type, event_proximity, fundamental_bias,
+           max_positions, stop_adjustment, is_news_trade, status
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+         RETURNING *`,
+        [symbol, direction,
+         entry ? entry.entry : null, entry ? entry.sl : null, entry ? entry.tp : null, entry ? entry.rr : null,
+         layer1Score, layer2Score, layer3Score, layer4Score,
+         fundamentalScore, smtScore, totalConfidence,
+         JSON.stringify(entry ? entry.confluence || [] : []),
+         weekType, false, fund ? fund.bias : null,
+         maxPos, slAdj, false, 'active']
+      );
+      storedSignal = rows[0];
+    }
+
+    res.json({
+      status: 'ok',
+      data: {
+        generated,
+        signal: storedSignal,
+        direction,
+        confidence: totalConfidence,
+        threshold: 65,
+        layers: {
+          weekly_profile: wp ? { bias: wp.bias, model: wp.model, confidence: wp.confidence } : null,
+          h4_signal: h4 ? { model: h4.model, bias: h4.bias, killzone: h4.killzone, confidence: h4.confidence } : null,
+          h1_confirmation: h1 ? { confirmed: h1.ohol_formed, type: h1.confirmation_type, confidence: h1.confidence } : null,
+          entry: entry ? { direction: entry.direction, entry: entry.entry, sl: entry.sl, tp: entry.tp, rr: entry.rr, fvg_stage: entry.fvg_stage } : null,
+          fundamental: fund ? { bias: fund.bias, score: fund.score, day_type: fund.day_type } : null,
+          smt: smt ? { type: smt.type, confidence: smt.confidence } : null,
+        },
+        fundamental_aligned: fundamentalAligned,
+        reasons: reason,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Week type endpoint
+app.get('/api/week-type', async (req, res) => {
+  try {
+    const now = new Date();
+    const weekStart = getWeekStart(now);
+    const today = now.toISOString().split('T')[0];
+
+    // Check stored classification
+    const wcRes = await pool.query('SELECT * FROM week_classifications WHERE week_start=$1', [weekStart]);
+    if (wcRes.rows.length > 0) {
+      return res.json({ status: 'ok', data: wcRes.rows[0] });
+    }
+
+    // Compute from events
+    const events = await pool.query(
+      `SELECT e.impact_tier, COUNT(*) as cnt
+       FROM economic_events e
+       JOIN event_releases er ON er.event_id = e.id
+       WHERE er.release_date >= $1::date AND er.release_date < ($1::date + interval '7 days')
+       GROUP BY e.impact_tier`, [weekStart]
+    );
+
+    const tierCounts = {};
+    for (const r of events.rows) tierCounts[r.impact_tier] = parseInt(r.cnt);
+
+    let weekType = 'LOW_IMPACT';
+    let volMult = 0.7;
+    let maxPos = 5;
+    let slWiden = 0.8;
+    let entryRule = 'aggressive';
+    let bestStrategy = 'mean_reversion';
+
+    if ((tierCounts['S+'] || 0) >= 1 || (tierCounts['S'] || 0) >= 1) {
+      weekType = 'HIGH_IMPACT'; volMult = 1.8; maxPos = 2; slWiden = 1.5;
+      entryRule = 'event_only'; bestStrategy = 'event_breakout_or_fade';
+    } else if ((tierCounts['A'] || 0) >= 1) {
+      weekType = 'MEDIUM_IMPACT'; volMult = 1.3; maxPos = 3; slWiden = 1.2;
+      entryRule = 'standard_with_caution'; bestStrategy = 'trend_following';
+    } else if ((tierCounts['B'] || 0) >= 2 || (tierCounts['C'] || 0) >= 3) {
+      weekType = 'LOW_MEDIUM_IMPACT'; volMult = 1.0; maxPos = 4; slWiden = 1.0;
+      entryRule = 'standard'; bestStrategy = 'standard';
+    }
+
+    // Get upcoming events for display
+    const upcomingRes = await pool.query(
+      `SELECT e.event_name, e.impact_tier, er.release_date, e.release_time_utc
+       FROM economic_events e
+       JOIN event_releases er ON er.event_id = e.id
+       WHERE er.release_date >= $1::date AND er.release_date < ($1::date + interval '7 days')
+       ORDER BY er.release_date, e.release_time_utc`, [weekStart]
+    );
+
+    const result = {
+      week_start: weekStart,
+      week_type: weekType,
+      volatility_multiplier: volMult,
+      max_positions: maxPos,
+      stop_loss_widen: slWiden,
+      entry_rule: entryRule,
+      best_strategy: bestStrategy,
+      tier_counts: tierCounts,
+      upcoming_events: upcomingRes.rows,
+    };
+
+    // Store
+    await pool.query(
+      `INSERT INTO week_classifications (week_start, week_type, volatility_multiplier, max_positions, stop_loss_widen, entry_rule, best_strategy, tier_counts, upcoming_events)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (week_start) DO UPDATE SET week_type=$2, volatility_multiplier=$3, max_positions=$4, stop_loss_widen=$5, entry_rule=$6, best_strategy=$7, tier_counts=$8, upcoming_events=$9`,
+      [weekStart, weekType, volMult, maxPos, slWiden, entryRule, bestStrategy,
+       JSON.stringify(tierCounts), JSON.stringify(upcomingRes.rows.map(e => e.event_name))]
+    );
+
+    res.json({ status: 'ok', data: result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// HISTORY ENDPOINTS
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/signals/history/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const limit = parseInt(req.query.limit || '50');
+    const { rows } = await pool.query(
+      'SELECT * FROM unified_signals WHERE symbol=$1 ORDER BY created_at DESC LIMIT $2',
+      [symbol, limit]
+    );
+    res.json({ status: 'ok', data: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/signals/history/:symbol/stats', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const statsRes = await pool.query(
+      `SELECT
+         COUNT(*) as total_signals,
+         COUNT(*) FILTER (WHERE direction = 'bullish') as bullish_count,
+         COUNT(*) FILTER (WHERE direction = 'bearish') as bearish_count,
+         AVG(total_confidence) as avg_confidence,
+         AVG(layer1_score) as avg_layer1,
+         AVG(layer2_score) as avg_layer2,
+         AVG(layer3_score) as avg_layer3,
+         AVG(layer4_score) as avg_layer4,
+         AVG(fundamental_score) as avg_fundamental,
+         AVG(smt_score) as avg_smt
+       FROM unified_signals WHERE symbol=$1`, [symbol]
+    );
+
+    // Get entry results for win rate
+    const entryStats = await pool.query(
+      `SELECT
+         COUNT(*) as total_entries,
+         COUNT(*) FILTER (WHERE result='win') as wins,
+         COUNT(*) FILTER (WHERE result='loss') as losses,
+         AVG(rr) as avg_rr
+       FROM entry_signals WHERE symbol=$1 AND result IN ('win','loss')`, [symbol]
+    );
+
+    const s = statsRes.rows[0];
+    const e = entryStats.rows[0];
+    const totalEntries = parseInt(e.total_entries) || 0;
+    const wins = parseInt(e.wins) || 0;
+
+    res.json({
+      status: 'ok',
+      data: {
+        symbol,
+        total_signals: parseInt(s.total_signals) || 0,
+        bullish_count: parseInt(s.bullish_count) || 0,
+        bearish_count: parseInt(s.bearish_count) || 0,
+        avg_confidence: s.avg_confidence ? Math.round(parseFloat(s.avg_confidence) * 10) / 10 : 0,
+        layer_averages: {
+          weekly_profile: s.avg_layer1 ? Math.round(parseFloat(s.avg_layer1) * 10) / 10 : 0,
+          h4_signal: s.avg_layer2 ? Math.round(parseFloat(s.avg_layer2) * 10) / 10 : 0,
+          h1_confirmation: s.avg_layer3 ? Math.round(parseFloat(s.avg_layer3) * 10) / 10 : 0,
+          entry: s.avg_layer4 ? Math.round(parseFloat(s.avg_layer4) * 10) / 10 : 0,
+          fundamental: s.avg_fundamental ? Math.round(parseFloat(s.avg_fundamental) * 10) / 10 : 0,
+          smt: s.avg_smt ? Math.round(parseFloat(s.avg_smt) * 10) / 10 : 0,
+        },
+        win_rate: totalEntries > 0 ? Math.round((wins / totalEntries) * 1000) / 10 : 0,
+        avg_rr: e.avg_rr ? Math.round(parseFloat(e.avg_rr) * 100) / 100 : 0,
+        total_entries: totalEntries,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// HEALTH & UTILITY
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', db: 'connected', uptime: process.uptime() });
+  } catch (e) {
+    res.status(500).json({ status: 'error', message: e.message });
+  }
+});
+
+app.get('/api/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    // Check table counts
+    const tables = ['historical_ohlc', 'weekly_profiles', 'h4_signals', 'h1_confirmations',
+                     'entry_signals', 'smt_signals', 'strategy_performance', 'economic_events',
+                     'event_releases', 'week_classifications', 'fundamental_bias', 'unified_signals',
+                     'correlation_snapshots'];
+    const counts = {};
+    for (const t of tables) {
+      const r = await pool.query(`SELECT COUNT(*) as cnt FROM ${t}`);
+      counts[t] = parseInt(r.rows[0].cnt);
+    }
+    res.json({ status: 'ok', db: 'connected', tables: counts, uptime: process.uptime() });
+  } catch (e) {
+    res.status(500).json({ status: 'error', message: e.message });
+  }
+});
+
+app.post('/api/query', async (req, res) => {
+  try {
+    const { sql, params } = req.body;
+    if (!sql) return res.status(400).json({ error: 'SQL query required' });
+    // Block dangerous statements
+    const upper = sql.toUpperCase().trim();
+    if (upper.startsWith('DROP') || upper.startsWith('TRUNCATE') || upper.startsWith('DELETE') || upper.startsWith('UPDATE')) {
+      return res.status(403).json({ error: 'Write operations blocked via /api/query' });
+    }
+    const { rows } = await pool.query(sql, params || []);
+    res.json({ status: 'ok', data: rows, count: rows.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// START
+// ═══════════════════════════════════════════════════════════════
+
+const PORT = 3001;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Aegis Terminal API v2 running on port ${PORT}`);
+  console.log(`Endpoints: /health, /api/health, /api/weekly-profile/:symbol, /api/h4-profile/:symbol, /api/h1-confirm/:symbol, /api/entry/:symbol, /api/fundamental-context/:symbol, /api/smt/:symbol, /api/unified-signal/:symbol`);
+});

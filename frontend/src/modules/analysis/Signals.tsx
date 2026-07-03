@@ -1,621 +1,863 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Zap, Target, Clock, TrendingUp, TrendingDown, Minus, Shield, AlertTriangle, CheckCircle } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import {
+  Zap, Target, Shield, TrendingUp, TrendingDown, Clock,
+  AlertTriangle, CheckCircle, BarChart3, Activity,
+} from 'lucide-react'
 import { api } from '../../lib/api'
 
-interface SwingPoint {
-  price: number
-  type: string
-  time: number
-}
-
-interface FVG {
-  type: string
-  top: number
-  bottom: number
-  gap: number
-  time: number
-}
-
-interface OrderBlock {
-  type: string
-  high: number
-  low: number
-  time: number
-}
-
-interface Setup {
-  type: 'long' | 'short'
-  entry: number
-  sl: number
-  tp: number
-  rr: number
-  reason: string
-  confluence: string[]
-  status: 'active' | 'waiting'
-}
-
-interface Signal {
+/* ── types ─────────────────────────────────────────────────────────── */
+interface UnifiedSignalResponse {
   symbol: string
-  bias: 'bullish' | 'bearish' | 'neutral'
-  confidence: number
-  price: number
-  spread: number
-  zone: 'premium' | 'discount' | 'equilibrium'
-  killZone: string
-  structure: {
-    trend: string
-    swingHighs: SwingPoint[]
-    swingLows: SwingPoint[]
-    bos: boolean
-    choch: boolean
-  }
-  levels: {
-    resistance: number[]
-    support: number[]
-    fvgs: FVG[]
-    orderBlocks: OrderBlock[]
-    equilibrium: number
-  }
-  setups: Setup[]
-  timestamp: number
-  reasoning?: {
-    summary: string
-    structure: string
-    candlePattern?: string
-    multiTf: string
-    zoneNote: string
+  active: boolean
+  signal: {
+    direction: 'LONG' | 'SHORT' | 'NEUTRAL'
+    entry: number
+    sl: number
+    tp: number
+    rr: number
+    confidence: number
+    confluence: string[]
+  } | null
+  breakdown: {
+    weeklyProfile: {
+      score: number
+      bias: string
+      model: string
+      confidence: number
+      weekHigh: number
+      weekLow: number
+      weekType: string
+    } | null
+    h4Signal: {
+      score: number
+      modelNumber: string
+      killzone: string
+    } | null
+    h1Confirm: {
+      score: number
+      ohStatus: string
+      olStatus: string
+      confirmed: boolean
+    } | null
+    m15Entry: {
+      score: number
+      po3Phase: string
+      mss: boolean
+      fvgStage: string
+    } | null
+    fundamental: {
+      score: number
+      bias: string
+      weekType: string
+      eventProximity: string
+    } | null
+    smt: {
+      score: number
+      divergenceType: string
+      correlatedPairs: string[]
+    } | null
   }
 }
 
-interface SignalHistory {
-  id: number
+interface FundamentalContext {
   symbol: string
   bias: string
-  confidence: number
-  price: number
+  score: number
+  dayType: string
+  weekType: string
+  eventProximity: string
+  nextEvent: {
+    name: string
+    time: string
+    impact: string
+  } | null
+  lastSurprise: string | null
+}
+
+interface SignalHistoryEntry {
+  id: number
+  symbol: string
+  direction: string
   entry: number
   sl: number
   tp: number
   rr: number
   result: string
-  reason: string
-  timeframe: string
+  confidence: number
   created_at: string
 }
 
-const PAIRS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD']
-const TIMEFRAMES = ['H1', 'H4', 'D1']
-
-function biasIcon(bias: string) {
-  if (bias === 'bullish') return <TrendingUp size={14} style={{ color: 'var(--kt-up)' }} />
-  if (bias === 'bearish') return <TrendingDown size={14} style={{ color: 'var(--kt-dn)' }} />
-  return <Minus size={14} style={{ color: 'var(--kt-muted)' }} />
+interface SignalStats {
+  total: number
+  wins: number
+  losses: number
+  open: number
+  winRate: number
+  avgRR: number
+  byBias: Record<string, { total: number; wins: number; losses: number; winRate: number }>
+  calibration: Record<string, { total: number; wins: number; actualWinRate: number }>
+  ready: boolean
 }
 
-function biasColor(bias: string) {
-  if (bias === 'bullish') return 'var(--kt-up)'
-  if (bias === 'bearish') return 'var(--kt-dn)'
-  return 'var(--kt-muted)'
+/* ── constants ─────────────────────────────────────────────────────── */
+const SYMBOLS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD']
+
+const WEEK_TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  HIGH: { bg: 'rgba(239,68,68,.15)', text: '#f87171', border: 'rgba(239,68,68,.3)' },
+  MEDIUM: { bg: 'rgba(245,158,11,.12)', text: '#f59e0b', border: 'rgba(245,158,11,.25)' },
+  LOW: { bg: 'rgba(148,163,184,.10)', text: '#94a3b8', border: 'rgba(148,163,184,.2)' },
 }
 
-function formatPrice(p: number) {
-  return p.toFixed(2)
+const DAY_TYPE_META: Record<string, { color: string; icon: string }> = {
+  manipulation: { color: '#ef4444', icon: '🎯' },
+  continuation: { color: '#22c55e', icon: '📈' },
+  reversal: { color: '#f59e0b', icon: '🔄' },
+  expansion: { color: '#3b82f6', icon: '🚀' },
+  distribution: { color: '#a855f7', icon: '📊' },
 }
 
-function formatTime(ts: number) {
-  return new Date(ts * 1000).toLocaleString('id-ID', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+/* ── helpers ───────────────────────────────────────────────────────── */
+function fmtPrice(p: number | null | undefined) {
+  if (p == null || isNaN(p)) return '—'
+  return p < 10 ? p.toFixed(4) : p.toFixed(2)
 }
 
-function timeAgo(ts: number) {
-  const diff = Math.floor(Date.now() / 1000) - ts
-  if (diff < 5) return 'just now'
-  if (diff < 60) return `${diff}s ago`
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-  return `${Math.floor(diff / 3600)}h ago`
+function fmtCountdown(ms: number) {
+  if (ms <= 0) return 'NOW'
+  const d = Math.floor(ms / 86400_000)
+  const h = Math.floor((ms % 86400_000) / 3_600_000)
+  const m = Math.floor((ms % 3_600_000) / 60_000)
+  return [d > 0 && `${d}d`, h > 0 && `${h}h`, `${m}m`].filter(Boolean).join(' ')
 }
 
-function resultColor(result: string) {
-  if (result === 'hit_tp') return 'var(--kt-up)'
-  if (result === 'hit_sl') return 'var(--kt-dn)'
-  if (result === 'open') return 'var(--kt-gold)'
-  return 'var(--kt-muted)'
+function scoreColor(score: number) {
+  if (score >= 70) return '#22c55e'
+  if (score >= 40) return '#f59e0b'
+  return '#ef4444'
 }
 
+function resultColor(r: string) {
+  if (r === 'hit_tp' || r === 'win') return '#22c55e'
+  if (r === 'hit_sl' || r === 'loss') return '#ef4444'
+  if (r === 'open') return '#f59e0b'
+  return '#64748b'
+}
+
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  if (diff < 60_000) return 'just now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  return `${Math.floor(diff / 86_400_000)}d ago`
+}
+
+/* ── Score Card ────────────────────────────────────────────────────── */
+function ScoreCard({ title, icon, data }: {
+  title: string
+  icon: React.ReactNode
+  data: { label: string; value: string | boolean | number; color?: string }[]
+}) {
+  return (
+    <div style={{
+      background: '#12121a',
+      border: '1px solid #1e1e2e',
+      borderRadius: 10,
+      padding: 14,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {icon}
+        <span style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0' }}>{title}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: '#64748b' }}>{d.label}</span>
+            <span style={{
+              fontSize: 12, fontWeight: 600,
+              color: d.color ?? (typeof d.value === 'boolean' ? (d.value ? '#22c55e' : '#ef4444') : '#e2e8f0'),
+              fontFamily: 'var(--font-mono)',
+            }}>
+              {typeof d.value === 'boolean' ? (d.value ? 'YES' : 'NO') : d.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ── Confidence Bar ────────────────────────────────────────────────── */
+function ConfidenceBar({ value }: { value: number }) {
+  const color = value >= 70 ? '#22c55e' : value >= 40 ? '#f59e0b' : '#ef4444'
+  return (
+    <div style={{ width: '100%', height: 8, background: '#1e1e2e', borderRadius: 4, overflow: 'hidden' }}>
+      <div style={{
+        width: `${Math.min(value, 100)}%`, height: '100%',
+        background: color, borderRadius: 4,
+        transition: 'width 0.5s ease',
+      }} />
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* ── MAIN COMPONENT ────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════ */
 export default function Signals() {
   const [symbol, setSymbol] = useState('XAUUSD')
-  const [timeframe, setTimeframe] = useState('H1')
   const [biasFilter, setBiasFilter] = useState<string>('all')
   const [resultFilter, setResultFilter] = useState<string>('all')
+  const [countdown, setCountdown] = useState('')
 
-  const { data: signal, isLoading, dataUpdatedAt } = useQuery<Signal>({
-    queryKey: ['signal', symbol, timeframe],
-    queryFn: () => api(`/api/signals/${symbol}?timeframe=${timeframe}`),
+  // Countdown tick for next event
+  useEffect(() => {
+    const timer = setInterval(() => setCountdown(c => c), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  /* ── data fetching ─────────────────────────────────────────────── */
+  const { data: unified, isLoading: sigLoading, dataUpdatedAt } = useQuery<UnifiedSignalResponse>({
+    queryKey: ['unified-signal', symbol],
+    queryFn: () => api(`/api/unified-signal/${symbol}`),
     refetchInterval: 10_000,
     retry: 1,
   })
 
-  const { data: history = [] } = useQuery<SignalHistory[]>({
-    queryKey: ['signal-history', symbol, timeframe, Math.floor(Date.now() / 60_000)],
-    queryFn: () => api(`/api/signals/history/${symbol}?timeframe=${timeframe}&limit=20&_=${Date.now()}`),
+  const { data: fundamental } = useQuery<FundamentalContext>({
+    queryKey: ['fundamental-context', symbol],
+    queryFn: () => api(`/api/fundamental-context/${symbol}`),
+    refetchInterval: 30_000,
+    retry: 1,
+  })
+
+  const { data: history = [] } = useQuery<SignalHistoryEntry[]>({
+    queryKey: ['signal-history', symbol],
+    queryFn: () => api(`/api/signals/history/${symbol}`),
     refetchInterval: 30_000,
     retry: false,
     staleTime: 0,
   })
 
-  const { data: stats } = useQuery<{
-    total: number
-    wins: number
-    losses: number
-    open: number
-    winRate: number
-    avgRR: number
-    byBias: Record<string, { total: number; wins: number; losses: number; winRate: number }>
-    calibration: Record<string, { total: number; wins: number; actualWinRate: number }>
-    ready: boolean
-  }>({
-    queryKey: ['signal-stats', symbol, timeframe],
-    queryFn: () => api(`/api/signals/history/${symbol}/stats?timeframe=${timeframe}`),
+  const { data: stats } = useQuery<SignalStats>({
+    queryKey: ['signal-stats', symbol],
+    queryFn: () => api(`/api/signals/history/${symbol}/stats`),
     refetchInterval: 60_000,
     retry: false,
   })
 
-  const filteredHistory = history.filter(h => {
-    if (biasFilter !== 'all' && h.bias !== biasFilter) return false
-    if (resultFilter !== 'all' && h.result !== resultFilter) return false
-    return true
-  })
+  /* ── computed ──────────────────────────────────────────────────── */
+  const filteredHistory = useMemo(() =>
+    history.filter(h => {
+      if (biasFilter !== 'all') {
+        const b = h.direction?.toLowerCase()
+        if (biasFilter === 'bullish' && b !== 'long') return false
+        if (biasFilter === 'bearish' && b !== 'short') return false
+      }
+      if (resultFilter !== 'all' && h.result !== resultFilter) return false
+      return true
+    }),
+    [history, biasFilter, resultFilter]
+  )
+
+  const nextEventCountdown = useMemo(() => {
+    if (!fundamental?.nextEvent?.time) return null
+    const ms = new Date(fundamental.nextEvent.time).getTime() - Date.now()
+    return ms > 0 ? fmtCountdown(ms) : 'NOW'
+  }, [fundamental, countdown])
+
+  const isEventProximity = useMemo(() => {
+    if (!fundamental?.nextEvent?.time) return false
+    const ms = new Date(fundamental.nextEvent.time).getTime() - Date.now()
+    return ms > 0 && ms < 30 * 60_000
+  }, [fundamental, countdown])
+
+  const signal = unified?.signal
+  const breakdown = unified?.breakdown
+  const wt = fundamental?.weekType?.toUpperCase() ?? 'MEDIUM'
+  const wtColor = WEEK_TYPE_COLORS[wt] ?? WEEK_TYPE_COLORS.MEDIUM
+  const dayType = fundamental?.dayType
+  const dayMeta = dayType ? DAY_TYPE_META[dayType] : null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* Header */}
-      <div className="kt-route-head">
+      {/* ═══ HEADER ═══ */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <div className="kt-kicker">Lab Signals</div>
-          <h1>SMC/ICT Signals</h1>
-          <p>Real-time market structure analysis with entry setups</p>
+          <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2 }}>
+            Unified Signals
+          </div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#e2e8f0' }}>
+            <Zap size={20} style={{ color: '#f59e0b', marginRight: 6, verticalAlign: 'middle' }} />
+            Signal Dashboard
+          </h1>
+          <p style={{ margin: 0, fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            Multi-layer analysis with confluence scoring
+          </p>
         </div>
+        {dataUpdatedAt && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', animation: 'pulse-dot 2s infinite' }} />
+            Live · 10s refresh
+          </span>
+        )}
       </div>
 
-      {/* Symbol + Timeframe Selector */}
-      <div className="kt-card" style={{ marginBottom: 0 }}>
-        <div className="kt-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {PAIRS.map(p => (
-              <button
-                key={p}
-                className={`kt-tag ${symbol === p ? 'gold' : ''}`}
-                onClick={() => setSymbol(p)}
-                style={{ cursor: 'pointer', minWidth: 70, justifyContent: 'center' }}
-              >
-                {p}
-              </button>
-            ))}
-            <span style={{ marginLeft: 'auto', color: 'var(--kt-dim)', fontSize: 'var(--xs)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              {dataUpdatedAt && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#46c97f', animation: 'pulse-dot 2s infinite' }} />
-                  Updated {timeAgo(Math.floor(dataUpdatedAt / 1000))}
-                </span>
-              )}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>Timeframe:</span>
-            {TIMEFRAMES.map(tf => (
-              <button
-                key={tf}
-                className={`kt-tag ${timeframe === tf ? 'gold' : ''}`}
-                onClick={() => setTimeframe(tf)}
-                style={{ cursor: 'pointer', fontSize: 10, padding: '3px 10px' }}
-              >
-                {tf}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* ═══ SYMBOL SELECTOR ═══ */}
+      <div style={{
+        display: 'flex', gap: 8, flexWrap: 'wrap',
+        background: '#12121a', border: '1px solid #1e1e2e',
+        borderRadius: 10, padding: 12,
+      }}>
+        {SYMBOLS.map(s => (
+          <button
+            key={s}
+            onClick={() => setSymbol(s)}
+            style={{
+              padding: '7px 16px', borderRadius: 8, border: '1px solid',
+              borderColor: symbol === s ? '#f59e0b' : '#1e1e2e',
+              background: symbol === s ? 'rgba(245,158,11,.12)' : 'transparent',
+              color: symbol === s ? '#f59e0b' : '#64748b',
+              fontWeight: symbol === s ? 700 : 500,
+              fontSize: 12, cursor: 'pointer',
+              fontFamily: 'var(--font-mono)',
+              transition: 'all 0.2s',
+            }}
+          >
+            {s}
+          </button>
+        ))}
       </div>
 
-      {/* ═══ ACCURACY STATS ═══ */}
-      {stats && stats.total > 0 && (
-        <div className="kt-card">
-          <div className="kt-card-pad">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <Target size={16} style={{ color: 'var(--kt-gold)' }} />
-              <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Accuracy</span>
-              {!stats.ready && (
-                <span style={{ fontSize: 9, color: 'var(--kt-muted)', marginLeft: 'auto' }}>
-                  Collecting data... ({stats.total}/10 min)
-                </span>
-              )}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: 10, marginBottom: stats.ready ? 12 : 0 }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: stats.winRate >= 50 ? 'var(--kt-up)' : 'var(--kt-dn)' }}>{stats.winRate}%</div>
-                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Win Rate</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{stats.total}</div>
-                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Total</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--kt-up)' }}>{stats.wins}</div>
-                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Wins</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--kt-dn)' }}>{stats.losses}</div>
-                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Losses</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{stats.avgRR}:1</div>
-                <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>Avg R:R</div>
-              </div>
-            </div>
-
-            {/* Per-bias breakdown */}
-            {Object.keys(stats.byBias).length > 0 && (
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-                {Object.entries(stats.byBias).map(([bias, data]) => (
-                  <span key={bias}>
-                    <span style={{ textTransform: 'capitalize' }}>{bias}</span>: {data.winRate}% ({data.wins}/{data.total})
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Confidence calibration */}
-            {stats.ready && Object.keys(stats.calibration).length > 0 && (
-              <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(245,158,11,.04)', borderRadius: 6, fontSize: 'var(--xs)' }}>
-                <span style={{ color: 'var(--kt-gold)', fontWeight: 600 }}>Calibration: </span>
-                {Object.entries(stats.calibration).map(([band, data]) => (
-                  <span key={band} style={{ color: 'var(--kt-muted)', marginRight: 10 }}>
-                    {band}: {data.actualWinRate}% actual ({data.total} signals)
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+      {/* ═══ LOADING ═══ */}
+      {sigLoading && (
+        <div style={{
+          background: '#12121a', border: '1px solid #1e1e2e',
+          borderRadius: 10, padding: 40, textAlign: 'center',
+          color: '#64748b', fontSize: 13,
+        }}>
+          Analyzing multi-layer signals...
         </div>
       )}
 
-      {isLoading && (
-        <div className="kt-card">
-          <div className="kt-card-pad" style={{ textAlign: 'center', padding: 40 }}>
-            <span style={{ color: 'var(--kt-muted)' }}>Analyzing market structure...</span>
-          </div>
-        </div>
-      )}
-
-      {signal && (
-        <>
-          {/* ═══ BIAS BANNER ═══ */}
-          <div className="kt-card" style={{
-            borderLeft: `3px solid ${biasColor(signal.bias)}`,
-            background: signal.bias === 'bullish' ? 'rgba(34,197,94,.06)' : signal.bias === 'bearish' ? 'rgba(239,68,68,.06)' : 'rgba(148,163,184,.04)',
+      {/* ═══ ACTIVE SIGNAL CARD ═══ */}
+      {unified && (
+        <div style={{
+          background: '#12121a',
+          border: '1px solid #1e1e2e',
+          borderRadius: 10,
+          overflow: 'hidden',
+        }}>
+          {/* Direction Banner */}
+          <div style={{
+            padding: '14px 18px',
+            display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+            background: !signal ? 'rgba(100,116,139,.06)'
+              : signal.direction === 'LONG' ? 'rgba(34,197,94,.06)' : 'rgba(239,68,68,.06)',
+            borderBottom: '1px solid #1e1e2e',
           }}>
-            <div className="kt-card-pad">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <Zap size={20} style={{ color: 'var(--kt-gold)' }} />
-                <span className="mono" style={{ fontSize: 'var(--lg)', fontWeight: 700, color: 'var(--kt-text)' }}>
-                  {signal.symbol}
-                </span>
-                <span style={{ fontSize: 'var(--xxl)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
-                  {formatPrice(signal.price)}
-                </span>
-                <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-                  Spread: {signal.spread}pts
-                </span>
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {biasIcon(signal.bias)}
-                  <span style={{ fontSize: 'var(--md)', fontWeight: 700, color: biasColor(signal.bias), textTransform: 'uppercase' }}>
-                    {signal.bias}
-                  </span>
-                  <span style={{ fontSize: 'var(--sm)', color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {signal.confidence}%
-                  </span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-                <span className={`kt-tag ${signal.zone === 'discount' ? 'gold' : ''}`} style={{ fontSize: 9 }}>
-                  {signal.zone.toUpperCase()}
-                </span>
-                <span className="kt-tag" style={{ fontSize: 9 }}>
-                  {signal.killZone}
-                </span>
-                {signal.structure.bos && (
-                  <span className="kt-tag gold" style={{ fontSize: 9 }}>BOS CONFIRMED</span>
-                )}
-              </div>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <Zap size={18} style={{ color: '#f59e0b' }} />
+              <span style={{
+                fontSize: 16, fontWeight: 800, color: '#e2e8f0',
+                fontFamily: 'var(--font-mono)',
+              }}>
+                {symbol}
+              </span>
             </div>
-          </div>
 
-          {/* ═══ MARKET STRUCTURE ═══ */}
-          <div className="kt-card">
-            <div className="kt-card-pad">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <Target size={16} style={{ color: 'var(--kt-gold)' }} />
-                <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Market Structure</span>
-                <span className="kt-tag gold" style={{ marginLeft: 'auto', fontSize: 9 }}>{signal.structure.trend}</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                {/* Swing Highs */}
-                <div>
-                  <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 6 }}>Swing Highs</div>
-                  {signal.structure.swingHighs.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--kt-border)' }}>
-                      <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>{formatTime(s.time)}</span>
-                      <span className="mono" style={{ fontSize: 'var(--xs)', color: biasColor(s.type === 'HH' ? 'bullish' : 'bearish'), fontWeight: 600 }}>
-                        {s.type} {formatPrice(s.price)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Swing Lows */}
-                <div>
-                  <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 6 }}>Swing Lows</div>
-                  {signal.structure.swingLows.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--kt-border)' }}>
-                      <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>{formatTime(s.time)}</span>
-                      <span className="mono" style={{ fontSize: 'var(--xs)', color: biasColor(s.type === 'HL' ? 'bullish' : 'bearish'), fontWeight: 600 }}>
-                        {s.type} {formatPrice(s.price)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ═══ KEY LEVELS ═══ */}
-          <div className="kt-card">
-            <div className="kt-card-pad">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <Shield size={16} style={{ color: 'var(--kt-gold)' }} />
-                <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Key Levels</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-                {/* Resistance */}
-                <div>
-                  <div style={{ fontSize: 9, color: 'var(--kt-dn)', textTransform: 'uppercase', marginBottom: 6 }}>Resistance</div>
-                  {signal.levels.resistance.map((r, i) => (
-                    <div key={i} className="mono" style={{ fontSize: 'var(--sm)', padding: '4px 8px', marginBottom: 4, borderRadius: 4, background: 'rgba(239,68,68,.08)', color: 'var(--kt-dn)' }}>
-                      {formatPrice(r)}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Support */}
-                <div>
-                  <div style={{ fontSize: 9, color: 'var(--kt-up)', textTransform: 'uppercase', marginBottom: 6 }}>Support</div>
-                  {signal.levels.support.map((s, i) => (
-                    <div key={i} className="mono" style={{ fontSize: 'var(--sm)', padding: '4px 8px', marginBottom: 4, borderRadius: 4, background: 'rgba(34,197,94,.08)', color: 'var(--kt-up)' }}>
-                      {formatPrice(s)}
-                    </div>
-                  ))}
-                </div>
-
-                {/* FVGs */}
-                <div>
-                  <div style={{ fontSize: 9, color: 'var(--kt-gold)', textTransform: 'uppercase', marginBottom: 6 }}>Fair Value Gaps</div>
-                  {signal.levels.fvgs.slice(-3).map((f, i) => (
-                    <div key={i} style={{ padding: '4px 8px', marginBottom: 4, borderRadius: 4, background: f.type === 'bull' ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)' }}>
-                      <span className="mono" style={{ fontSize: 'var(--xs)', color: f.type === 'bull' ? 'var(--kt-up)' : 'var(--kt-dn)' }}>
-                        {f.type === 'bull' ? '▲' : '▼'} {formatPrice(f.bottom)} - {formatPrice(f.top)}
-                      </span>
-                      <span style={{ fontSize: 9, color: 'var(--kt-muted)', marginLeft: 6 }}>({f.gap.toFixed(1)}pts)</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Order Blocks */}
-                <div>
-                  <div style={{ fontSize: 9, color: 'var(--kt-gold)', textTransform: 'uppercase', marginBottom: 6 }}>Order Blocks</div>
-                  {signal.levels.orderBlocks.slice(-3).map((o, i) => (
-                    <div key={i} style={{ padding: '4px 8px', marginBottom: 4, borderRadius: 4, background: o.type === 'bull_ob' ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)' }}>
-                      <span className="mono" style={{ fontSize: 'var(--xs)', color: o.type === 'bull_ob' ? 'var(--kt-up)' : 'var(--kt-dn)' }}>
-                        {o.type === 'bull_ob' ? '🟢 BULL OB' : '🔴 BEAR OB'} {formatPrice(o.low)} - {formatPrice(o.high)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Equilibrium */}
-              <div style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, background: 'rgba(245,158,11,.06)', borderLeft: '3px solid var(--kt-gold)', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-                Equilibrium: <span className="mono" style={{ color: 'var(--kt-text)' }}>{formatPrice(signal.levels.equilibrium)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* ═══ SETUPS ═══ */}
-          <div className="kt-card">
-            <div className="kt-card-pad">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <AlertTriangle size={16} style={{ color: 'var(--kt-gold)' }} />
-                <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Trade Setups</span>
-                {signal.setups.length === 0 && (
-                  <span style={{ marginLeft: 'auto', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>No setups — wait for pullback</span>
-                )}
-              </div>
-
-              {signal.setups.map((setup, i) => (
-                <div key={i} style={{
-                  padding: 12,
-                  marginBottom: 10,
-                  borderRadius: 8,
-                  border: `1px solid ${setup.type === 'long' ? 'rgba(34,197,94,.3)' : 'rgba(239,68,68,.3)'}`,
-                  background: setup.type === 'long' ? 'rgba(34,197,94,.04)' : 'rgba(239,68,68,.04)',
+            {signal && signal.direction !== 'NEUTRAL' ? (
+              <>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '4px 12px', borderRadius: 6,
+                  background: signal.direction === 'LONG' ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)',
+                  border: `1px solid ${signal.direction === 'LONG' ? 'rgba(34,197,94,.3)' : 'rgba(239,68,68,.3)'}`,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span className={setup.type === 'long' ? 'badge-bull' : 'badge-bear'} style={{ fontSize: 'var(--xs)', fontWeight: 700 }}>
-                      {setup.type.toUpperCase()}
-                    </span>
-                    {setup.status === 'active' ? (
-                      <CheckCircle size={12} style={{ color: 'var(--kt-up)' }} />
-                    ) : (
-                      <Clock size={12} style={{ color: 'var(--kt-muted)' }} />
-                    )}
-                    <span style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-                      {setup.status === 'active' ? 'ACTIVE' : 'WAITING'}
-                    </span>
-                    <span style={{ marginLeft: 'auto', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-                      {setup.reason}
-                    </span>
-                  </div>
+                  {signal.direction === 'LONG'
+                    ? <TrendingUp size={14} style={{ color: '#22c55e' }} />
+                    : <TrendingDown size={14} style={{ color: '#ef4444' }} />
+                  }
+                  <span style={{
+                    fontWeight: 800, fontSize: 13,
+                    color: signal.direction === 'LONG' ? '#22c55e' : '#ef4444',
+                  }}>
+                    {signal.direction}
+                  </span>
+                </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
-                    <div>
-                      <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>ENTRY</div>
-                      <div className="mono" style={{ fontSize: 'var(--sm)', fontWeight: 600 }}>{formatPrice(setup.entry)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>STOP LOSS</div>
-                      <div className="mono" style={{ fontSize: 'var(--sm)', fontWeight: 600, color: 'var(--kt-dn)' }}>{formatPrice(setup.sl)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>TARGET</div>
-                      <div className="mono" style={{ fontSize: 'var(--sm)', fontWeight: 600, color: 'var(--kt-up)' }}>{formatPrice(setup.tp)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 9, color: 'var(--kt-muted)' }}>R:R</div>
-                      <div className="mono" style={{ fontSize: 'var(--sm)', fontWeight: 700, color: setup.rr >= 2 ? 'var(--kt-up)' : 'var(--kt-gold)' }}>{setup.rr}:1</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, auto)', gap: 16, marginLeft: 'auto' }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase' }}>Entry</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', fontFamily: 'var(--font-mono)' }}>
+                      {fmtPrice(signal.entry)}
                     </div>
                   </div>
-
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {setup.confluence.map((c, j) => (
-                      <span key={j} className="kt-tag" style={{ fontSize: 9 }}>{c}</span>
-                    ))}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase' }}>SL</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', fontFamily: 'var(--font-mono)' }}>
+                      {fmtPrice(signal.sl)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase' }}>TP</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#22c55e', fontFamily: 'var(--font-mono)' }}>
+                      {fmtPrice(signal.tp)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase' }}>R:R</div>
+                    <div style={{
+                      fontSize: 14, fontWeight: 700,
+                      color: signal.rr >= 2 ? '#22c55e' : '#f59e0b',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {signal.rr ? signal.rr.toFixed(1) : '—'}:1
+                    </div>
                   </div>
                 </div>
+              </>
+            ) : (
+              <span style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
+                No active signal — waiting for confluence
+              </span>
+            )}
+          </div>
+
+          {/* Confidence + Confluence */}
+          <div style={{ padding: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>CONFIDENCE</span>
+              <span style={{
+                fontSize: 13, fontWeight: 700,
+                color: scoreColor(signal?.confidence ?? 0),
+                fontFamily: 'var(--font-mono)',
+              }}>
+                {signal?.confidence ?? 0}%
+              </span>
+            </div>
+            <ConfidenceBar value={signal?.confidence ?? 0} />
+
+            {signal?.confluence && signal.confluence.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Confluence Factors
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {signal.confluence.map((c, i) => (
+                    <span key={i} style={{
+                      padding: '3px 8px', borderRadius: 4,
+                      background: 'rgba(245,158,11,.08)',
+                      border: '1px solid rgba(245,158,11,.15)',
+                      fontSize: 10, color: '#f59e0b', fontWeight: 500,
+                    }}>
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ LAYER BREAKDOWN (6 cards) ═══ */}
+      {breakdown && (
+        <div>
+          <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Layer Breakdown
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: 10,
+          }}>
+            {/* 1. Weekly Profile */}
+            <ScoreCard
+              title="Weekly Profile"
+              icon={<BarChart3 size={14} style={{ color: '#f59e0b' }} />}
+              data={[
+                { label: 'Score', value: breakdown.weeklyProfile?.score ?? '—', color: scoreColor(breakdown.weeklyProfile?.score ?? 0) },
+                { label: 'Bias', value: (breakdown.weeklyProfile?.bias ?? '—').toUpperCase(), color: breakdown.weeklyProfile?.bias === 'bullish' ? '#22c55e' : breakdown.weeklyProfile?.bias === 'bearish' ? '#ef4444' : '#64748b' },
+                { label: 'Model', value: breakdown.weeklyProfile?.model ?? '—' },
+                { label: 'Confidence', value: `${breakdown.weeklyProfile?.confidence ?? 0}%` },
+              ]}
+            />
+
+            {/* 2. H4 Signal */}
+            <ScoreCard
+              title="H4 Signal"
+              icon={<Activity size={14} style={{ color: '#3b82f6' }} />}
+              data={[
+                { label: 'Score', value: breakdown.h4Signal?.score ?? '—', color: scoreColor(breakdown.h4Signal?.score ?? 0) },
+                { label: 'Model', value: breakdown.h4Signal?.modelNumber ?? '—' },
+                { label: 'Killzone', value: breakdown.h4Signal?.killzone ?? '—' },
+              ]}
+            />
+
+            {/* 3. H1 Confirm */}
+            <ScoreCard
+              title="H1 Confirm"
+              icon={<CheckCircle size={14} style={{ color: '#22c55e' }} />}
+              data={[
+                { label: 'Score', value: breakdown.h1Confirm?.score ?? '—', color: scoreColor(breakdown.h1Confirm?.score ?? 0) },
+                { label: 'OH Status', value: breakdown.h1Confirm?.ohStatus ?? '—' },
+                { label: 'OL Status', value: breakdown.h1Confirm?.olStatus ?? '—' },
+                { label: 'Confirmed', value: breakdown.h1Confirm?.confirmed ?? false },
+              ]}
+            />
+
+            {/* 4. M15 Entry */}
+            <ScoreCard
+              title="M15 Entry"
+              icon={<Target size={14} style={{ color: '#a855f7' }} />}
+              data={[
+                { label: 'Score', value: breakdown.m15Entry?.score ?? '—', color: scoreColor(breakdown.m15Entry?.score ?? 0) },
+                { label: 'PO3 Phase', value: breakdown.m15Entry?.po3Phase ?? '—' },
+                { label: 'MSS', value: breakdown.m15Entry?.mss ?? false },
+                { label: 'FVG Stage', value: breakdown.m15Entry?.fvgStage ?? '—' },
+              ]}
+            />
+
+            {/* 5. Fundamental */}
+            <ScoreCard
+              title="Fundamental"
+              icon={<Shield size={14} style={{ color: '#f59e0b' }} />}
+              data={[
+                { label: 'Score', value: breakdown.fundamental?.score ?? '—', color: scoreColor(breakdown.fundamental?.score ?? 0) },
+                { label: 'Bias', value: (breakdown.fundamental?.bias ?? '—').toUpperCase(), color: breakdown.fundamental?.bias === 'bullish' ? '#22c55e' : breakdown.fundamental?.bias === 'bearish' ? '#ef4444' : '#64748b' },
+                { label: 'Week Type', value: breakdown.fundamental?.weekType ?? '—' },
+                { label: 'Event Proximity', value: breakdown.fundamental?.eventProximity ?? '—' },
+              ]}
+            />
+
+            {/* 6. SMT */}
+            <ScoreCard
+              title="SMT Divergence"
+              icon={<AlertTriangle size={14} style={{ color: '#ef4444' }} />}
+              data={[
+                { label: 'Score', value: breakdown.smt?.score ?? '—', color: scoreColor(breakdown.smt?.score ?? 0) },
+                { label: 'Divergence', value: breakdown.smt?.divergenceType ?? 'NONE', color: breakdown.smt?.divergenceType && breakdown.smt.divergenceType !== 'NONE' ? '#ef4444' : '#64748b' },
+                { label: 'Correlated', value: breakdown.smt?.correlatedPairs?.join(', ') ?? '—' },
+              ]}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ═══ CONTEXT PANEL ═══ */}
+      {fundamental && (
+        <div style={{
+          background: '#12121a', border: '1px solid #1e1e2e',
+          borderRadius: 10, padding: 14,
+        }}>
+          <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Context
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Week Type Badge */}
+            <div style={{
+              padding: '4px 10px', borderRadius: 6,
+              background: wtColor.bg,
+              border: `1px solid ${wtColor.border}`,
+              fontSize: 11, fontWeight: 700, color: wtColor.text,
+            }}>
+              {wt} IMPACT WEEK
+            </div>
+
+            {/* Day Type */}
+            {dayMeta && (
+              <div style={{
+                padding: '4px 10px', borderRadius: 6,
+                background: `${dayMeta.color}15`,
+                border: `1px solid ${dayMeta.color}30`,
+                fontSize: 11, fontWeight: 600, color: dayMeta.color,
+              }}>
+                {dayMeta.icon} {(dayType ?? '').charAt(0).toUpperCase() + (dayType ?? '').slice(1)}
+              </div>
+            )}
+
+            {/* Event Proximity Warning */}
+            {isEventProximity && (
+              <div style={{
+                padding: '4px 10px', borderRadius: 6,
+                background: 'rgba(239,68,68,.12)',
+                border: '1px solid rgba(239,68,68,.25)',
+                fontSize: 11, fontWeight: 700, color: '#ef4444',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+                <AlertTriangle size={12} />
+                WITHIN 30 MIN
+              </div>
+            )}
+          </div>
+
+          {/* Next Event */}
+          {fundamental.nextEvent && (
+            <div style={{
+              marginTop: 10, padding: '10px 12px',
+              borderRadius: 8,
+              background: isEventProximity ? 'rgba(239,68,68,.06)' : 'rgba(245,158,11,.05)',
+              border: `1px solid ${isEventProximity ? 'rgba(239,68,68,.15)' : 'rgba(245,158,11,.1)'}`,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <Clock size={14} style={{ color: isEventProximity ? '#ef4444' : '#f59e0b', flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>
+                  {fundamental.nextEvent.name}
+                </span>
+                <span style={{
+                  marginLeft: 8, fontSize: 10, fontWeight: 600,
+                  padding: '1px 6px', borderRadius: 3,
+                  background: fundamental.nextEvent.impact === 'HIGH' ? 'rgba(239,68,68,.15)' : 'rgba(245,158,11,.1)',
+                  color: fundamental.nextEvent.impact === 'HIGH' ? '#ef4444' : '#f59e0b',
+                }}>
+                  {fundamental.nextEvent.impact}
+                </span>
+              </div>
+              <span style={{
+                fontSize: 13, fontWeight: 700,
+                color: isEventProximity ? '#ef4444' : '#f59e0b',
+                fontFamily: 'var(--font-mono)',
+              }}>
+                {nextEventCountdown ?? '—'}
+              </span>
+            </div>
+          )}
+
+          {/* Last Surprise */}
+          {fundamental.lastSurprise && (
+            <div style={{
+              marginTop: 8, fontSize: 11, color: '#64748b',
+            }}>
+              Last Surprise: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{fundamental.lastSurprise}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ WIN RATE STATS ═══ */}
+      {stats && stats.total > 0 && (
+        <div style={{
+          background: '#12121a', border: '1px solid #1e1e2e',
+          borderRadius: 10, padding: 14,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <Target size={14} style={{ color: '#f59e0b' }} />
+            <span style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0' }}>Performance</span>
+            {!stats.ready && (
+              <span style={{ fontSize: 10, color: '#64748b', marginLeft: 'auto' }}>
+                Collecting... ({stats.total}/10 min signals)
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: 12 }}>
+            {[
+              { label: 'Total', value: stats.total, color: '#e2e8f0' },
+              { label: 'Wins', value: stats.wins, color: '#22c55e' },
+              { label: 'Losses', value: stats.losses, color: '#ef4444' },
+              { label: 'Win Rate', value: `${stats.winRate}%`, color: stats.winRate >= 50 ? '#22c55e' : '#ef4444' },
+              { label: 'Avg R:R', value: `${stats.avgRR?.toFixed(1) ?? '—'}:1`, color: '#f59e0b' },
+            ].map(item => (
+              <div key={item.label} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: item.color, fontFamily: 'var(--font-mono)' }}>
+                  {item.value}
+                </div>
+                <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{item.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Per-bias breakdown */}
+          {Object.keys(stats.byBias).length > 0 && (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10, fontSize: 11, color: '#64748b' }}>
+              {Object.entries(stats.byBias).map(([bias, data]) => (
+                <span key={bias}>
+                  <span style={{ textTransform: 'capitalize' }}>{bias}</span>:{' '}
+                  <span style={{ fontWeight: 600, color: data.winRate >= 50 ? '#22c55e' : '#ef4444' }}>
+                    {data.winRate}%
+                  </span>
+                  {' '}({data.wins}/{data.total})
+                </span>
               ))}
             </div>
-          </div>
-
-          {/* ═══ REASONING ═══ */}
-          {signal.reasoning && (
-            <div className="kt-card">
-              <div className="kt-card-pad">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <Target size={16} style={{ color: 'var(--kt-gold)' }} />
-                  <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Reasoning</span>
-                </div>
-
-                {/* Summary */}
-                <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(245,158,11,.06)', borderLeft: '3px solid var(--kt-gold)', marginBottom: 12 }}>
-                  <div style={{ fontSize: 'var(--sm)', color: 'var(--kt-text)', lineHeight: 1.5 }}>
-                    {signal.reasoning.summary}
-                  </div>
-                </div>
-
-                {/* Detail Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-                  <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)' }}>
-                    <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Structure</div>
-                    <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>{signal.reasoning.structure}</div>
-                  </div>
-                  <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)' }}>
-                    <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Multi-TF</div>
-                    <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>{signal.reasoning.multiTf}</div>
-                  </div>
-                  <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)' }}>
-                    <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Zone</div>
-                    <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>{signal.reasoning.zoneNote}</div>
-                  </div>
-                  {signal.reasoning.candlePattern && (
-                    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)' }}>
-                      <div style={{ fontSize: 9, color: 'var(--kt-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Candle Pattern</div>
-                      <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-text2)', lineHeight: 1.4 }}>{signal.reasoning.candlePattern}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           )}
-
-          {/* ═══ SIGNAL HISTORY ═══ */}
-          {filteredHistory.length > 0 && (
-            <div className="kt-card">
-              <div className="kt-card-pad">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <Clock size={16} style={{ color: 'var(--kt-gold)' }} />
-                  <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Signal History</span>
-                  <span className="kt-tag" style={{ fontSize: 9, marginLeft: 'auto' }}>{filteredHistory.length} signals</span>
-                </div>
-
-                {/* Filter pills */}
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 9, color: 'var(--kt-muted)', alignSelf: 'center' }}>Bias:</span>
-                  {['all', 'bullish', 'bearish'].map(b => (
-                    <button key={b} className={`kt-tag ${biasFilter === b ? 'gold' : ''}`} onClick={() => setBiasFilter(b)} style={{ fontSize: 9, padding: '2px 8px', cursor: 'pointer' }}>
-                      {b === 'all' ? 'All' : b.toUpperCase()}
-                    </button>
-                  ))}
-                  <span style={{ fontSize: 9, color: 'var(--kt-muted)', alignSelf: 'center', marginLeft: 6 }}>Result:</span>
-                  {['all', 'open', 'hit_tp', 'hit_sl'].map(r => (
-                    <button key={r} className={`kt-tag ${resultFilter === r ? 'gold' : ''}`} onClick={() => setResultFilter(r)} style={{ fontSize: 9, padding: '2px 8px', cursor: 'pointer' }}>
-                      {r === 'all' ? 'All' : r === 'hit_tp' ? 'WIN' : r === 'hit_sl' ? 'LOSS' : 'OPEN'}
-                    </button>
-                  ))}
-                </div>
-
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="kt-table" style={{ width: '100%' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ textAlign: 'left' }}>Time</th>
-                        <th style={{ textAlign: 'left' }}>Bias</th>
-                        <th style={{ textAlign: 'center' }}>TF</th>
-                        <th style={{ textAlign: 'right' }}>Price</th>
-                        <th style={{ textAlign: 'right' }}>Entry</th>
-                        <th style={{ textAlign: 'right' }}>SL</th>
-                        <th style={{ textAlign: 'right' }}>TP</th>
-                        <th style={{ textAlign: 'right' }}>R:R</th>
-                        <th style={{ textAlign: 'center' }}>Result</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredHistory.map((h) => (
-                        <tr key={h.id}>
-                          <td style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-                            {new Date(h.created_at).toLocaleString('id-ID', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
-                          </td>
-                          <td>
-                            <span className={h.bias === 'bullish' ? 'badge-bull' : h.bias === 'bearish' ? 'badge-bear' : 'kt-tag'} style={{ fontSize: 9 }}>
-                              {h.bias.toUpperCase()}
-                            </span>
-                          </td>
-                          <td style={{ textAlign: 'center', fontSize: 9, color: 'var(--kt-muted)' }}>{h.timeframe || 'H1'}</td>
-                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)' }}>{formatPrice(h.price)}</td>
-                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)' }}>{formatPrice(h.entry)}</td>
-                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)', color: 'var(--kt-dn)' }}>{formatPrice(h.sl)}</td>
-                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)', color: 'var(--kt-up)' }}>{formatPrice(h.tp)}</td>
-                          <td className="mono" style={{ textAlign: 'right', fontSize: 'var(--xs)' }}>{h.rr}:1</td>
-                          <td style={{ textAlign: 'center' }}>
-                            <span style={{ fontSize: 9, fontWeight: 600, color: resultColor(h.result), textTransform: 'uppercase' }}>
-                              {h.result.replace('_', ' ')}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Disclaimer */}
-          <div style={{ padding: '8px 12px', borderRadius: 6, background: 'rgba(245,158,11,.04)', borderLeft: '3px solid var(--kt-gold)', fontSize: 'var(--xs)', color: 'var(--kt-muted)' }}>
-            ⚠️ This is automated SMC/ICT analysis, not financial advice. Always do your own research before trading.
-          </div>
-        </>
+        </div>
       )}
+
+      {/* ═══ SIGNAL HISTORY TABLE ═══ */}
+      <div style={{
+        background: '#12121a', border: '1px solid #1e1e2e',
+        borderRadius: 10, overflow: 'hidden',
+      }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #1e1e2e' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Clock size={14} style={{ color: '#f59e0b' }} />
+            <span style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0' }}>Signal History</span>
+            <span style={{
+              fontSize: 10, color: '#64748b',
+              padding: '2px 8px', borderRadius: 4,
+              background: 'rgba(100,116,139,.1)',
+            }}>
+              {filteredHistory.length} signals
+            </span>
+          </div>
+
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>Bias:</span>
+            {['all', 'bullish', 'bearish'].map(b => (
+              <button
+                key={b}
+                onClick={() => setBiasFilter(b)}
+                style={{
+                  padding: '2px 8px', borderRadius: 4,
+                  fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                  border: '1px solid',
+                  borderColor: biasFilter === b ? '#f59e0b' : '#1e1e2e',
+                  background: biasFilter === b ? 'rgba(245,158,11,.12)' : 'transparent',
+                  color: biasFilter === b ? '#f59e0b' : '#64748b',
+                }}
+              >
+                {b === 'all' ? 'All' : b === 'bullish' ? 'LONG' : 'SHORT'}
+              </button>
+            ))}
+
+            <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginLeft: 6 }}>Result:</span>
+            {['all', 'open', 'hit_tp', 'hit_sl'].map(r => (
+              <button
+                key={r}
+                onClick={() => setResultFilter(r)}
+                style={{
+                  padding: '2px 8px', borderRadius: 4,
+                  fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                  border: '1px solid',
+                  borderColor: resultFilter === r ? '#f59e0b' : '#1e1e2e',
+                  background: resultFilter === r ? 'rgba(245,158,11,.12)' : 'transparent',
+                  color: resultFilter === r ? '#f59e0b' : '#64748b',
+                }}
+              >
+                {r === 'all' ? 'All' : r === 'hit_tp' ? 'WIN' : r === 'hit_sl' ? 'LOSS' : 'OPEN'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #1e1e2e' }}>
+                {['Time', 'Direction', 'Entry', 'SL', 'TP', 'R:R', 'Result', 'Conf'].map(h => (
+                  <th key={h} style={{
+                    textAlign: h === 'Time' ? 'left' : 'right',
+                    padding: '8px 12px', fontSize: 10,
+                    color: '#64748b', fontWeight: 600,
+                    textTransform: 'uppercase', letterSpacing: '0.04em',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredHistory.length === 0 && (
+                <tr>
+                  <td colSpan={8} style={{ padding: 24, textAlign: 'center', color: '#64748b', fontSize: 12 }}>
+                    No signals yet
+                  </td>
+                </tr>
+              )}
+              {filteredHistory.map(h => {
+                const isLong = h.direction?.toLowerCase() === 'long'
+                return (
+                  <tr key={h.id} style={{ borderBottom: '1px solid rgba(30,30,46,.5)' }}>
+                    <td style={{
+                      padding: '7px 12px', fontSize: 11,
+                      color: '#64748b', whiteSpace: 'nowrap',
+                    }}>
+                      <div>{timeAgo(h.created_at)}</div>
+                    </td>
+                    <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700,
+                        padding: '2px 6px', borderRadius: 3,
+                        background: isLong ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)',
+                        color: isLong ? '#22c55e' : '#ef4444',
+                      }}>
+                        {h.direction?.toUpperCase() ?? '—'}
+                      </span>
+                    </td>
+                    <td style={{
+                      padding: '7px 12px', textAlign: 'right',
+                      fontSize: 12, fontWeight: 600, color: '#e2e8f0',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {fmtPrice(h.entry)}
+                    </td>
+                    <td style={{
+                      padding: '7px 12px', textAlign: 'right',
+                      fontSize: 12, color: '#ef4444',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {fmtPrice(h.sl)}
+                    </td>
+                    <td style={{
+                      padding: '7px 12px', textAlign: 'right',
+                      fontSize: 12, color: '#22c55e',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {fmtPrice(h.tp)}
+                    </td>
+                    <td style={{
+                      padding: '7px 12px', textAlign: 'right',
+                      fontSize: 12, fontWeight: 700,
+                      color: h.rr >= 2 ? '#22c55e' : '#f59e0b',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {h.rr ? h.rr.toFixed(1) : '—'}:1
+                    </td>
+                    <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700,
+                        color: resultColor(h.result),
+                      }}>
+                        {h.result === 'hit_tp' ? 'TP ✓' : h.result === 'hit_sl' ? 'SL ✗' : h.result?.toUpperCase() ?? '—'}
+                      </span>
+                    </td>
+                    <td style={{
+                      padding: '7px 12px', textAlign: 'right',
+                      fontSize: 11, fontWeight: 600,
+                      color: scoreColor(h.confidence ?? 0),
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {h.confidence ?? 0}%
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Disclaimer */}
+      <div style={{
+        padding: '8px 12px', borderRadius: 6,
+        background: 'rgba(245,158,11,.04)',
+        borderLeft: '3px solid #f59e0b',
+        fontSize: 11, color: '#64748b',
+      }}>
+        ⚠️ Automated multi-layer analysis, not financial advice. Always do your own research before trading.
+      </div>
     </div>
   )
 }
