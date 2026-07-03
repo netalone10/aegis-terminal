@@ -1150,21 +1150,17 @@ app.get('/api/unified-signal/:symbol', async (req, res) => {
       if (now.getUTCDate() <= firstFriday.getUTCDate() + 1) isNFPWeek = true;
     }
 
-    if (isMonday) {
-      return res.json({ status: 'ok', data: { generated: false, reason: 'Monday filter — no entries on Monday' } });
-    }
-    if (isFriday && isNFPWeek) {
-      return res.json({ status: 'ok', data: { generated: false, reason: 'NFP Friday — no entries' } });
-    }
-
     // Event proximity check
     const today = now.toISOString().split('T')[0];
-    const nearEvent = await isNearEvent(today, 30);
-    if (nearEvent) {
-      return res.json({ status: 'ok', data: { generated: false, reason: 'Within 30min of high-impact event' } });
-    }
+    let nearEvent = false;
+    // Filter reasons (applied after layer fetch)
+    const filterReasons = [];
+    if (dayOfWeek === 1) filterReasons.push("Monday — no entries");
+    if (isFriday && isNFPWeek) filterReasons.push("NFP Friday — no entries");
+    if (nearEvent) filterReasons.push("Within 30min of high-impact event");
+    try { nearEvent = await isNearEvent(today, 30); } catch(e) {}
 
-    // Get all layers
+    // Get all layers FIRST (always, even if filtered)
     const wpRes = await pool.query(
       'SELECT * FROM weekly_profiles WHERE symbol=$1 ORDER BY week_start DESC LIMIT 1', [symbol]
     );
@@ -1225,7 +1221,7 @@ app.get('/api/unified-signal/:symbol', async (req, res) => {
     else if (bearVotes > bullVotes) direction = 'bearish';
 
     // Minimum threshold: 65%
-    const generated = totalConfidence >= 65 && entry && entry.rr >= 2;
+    const generated = filterReasons.length === 0 && totalConfidence >= 65 && entry && entry.rr >= 2;
 
     // Fundamental alignment check
     let fundamentalAligned = true;
@@ -1233,7 +1229,7 @@ app.get('/api/unified-signal/:symbol', async (req, res) => {
       fundamentalAligned = fund.bias === direction;
     }
 
-    const reason = [];
+    const reason = [...filterReasons];
     if (totalConfidence < 65) reason.push(`Confidence ${totalConfidence}% below 65% threshold`);
     if (!entry) reason.push('No entry signal available');
     if (entry && entry.rr < 2) reason.push(`R:R ${entry.rr} below 2R minimum`);
