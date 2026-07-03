@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { Cache } from '../cache';
 import type { Bindings } from '../index';
-import { getCandles } from '../lib/candles';
+import { getCandles, mt5Fetch, toMT5Symbol } from '../lib/candles';
 
 export const smcRoutes = new Hono<{ Bindings: Bindings }>();
 
@@ -18,6 +18,42 @@ async function tvScan(query: object, timeframe?: string): Promise<any> {
   return res.json();
 }
 
+// ── MT5 timeframe mapping for indicators ──────────────────────────
+const MT5_IND_TF_MAP: Record<string, string> = {
+  '1m': 'M1', '5m': 'M5', '15m': 'M15', '30m': 'M30',
+  '1H': 'H1', '1h': 'H1', '4H': 'H4', '4h': 'H4',
+  '1D': 'D1', '1d': 'D1', 'D': 'D1',
+  '1W': 'W1', '1w': 'W1', 'W': 'W1',
+};
+
+/** Fetch real timeframe-specific indicators from MT5 broker (ATR, RSI, EMAs) */
+export async function mt5FetchIndicators(
+  env: Bindings,
+  symbol: string,
+  tf: string,
+  cache?: Cache
+): Promise<{ atr: number; rsi: number; ema20: number; ema50: number; sma200: number; price: number } | null> {
+  const mt5Tf = MT5_IND_TF_MAP[tf] || MT5_IND_TF_MAP[tf.toUpperCase()] || 'D1';
+  const mt5Symbol = toMT5Symbol(symbol);
+  if (!mt5Symbol) return null;
+  const key = `mt5:ind:${mt5Symbol}:${mt5Tf}`;
+  const run = () => mt5Fetch(env, `/indicators?symbol=${mt5Symbol}&timeframe=${mt5Tf}`);
+  try {
+    const raw = cache ? await cache.getOrSet(key, run, { ttl: 60 }) : await run();
+    if (!raw || raw.detail) return null;
+    return {
+      atr: raw.atr14 ?? raw.atr ?? 0,
+      rsi: raw.rsi14 ?? raw.rsi ?? 50,
+      ema20: raw.ema20 ?? 0,
+      ema50: raw.ema50 ?? 0,
+      sma200: raw.sma200 ?? 0,
+      price: raw.price ?? 0,
+    };
+  } catch {
+    return null; // fallback to Scanner values
+  }
+}
+
 // ── Yahoo Finance OHLCV fetcher ──────────────────────────────────
 const YAHOO_MAP: Record<string, string> = {
   'XAUUSD': 'GC=F', 'EURUSD': 'EURUSD=X', 'GBPUSD': 'GBPUSD=X',
@@ -31,48 +67,57 @@ const YAHOO_TF: Record<string, string> = {
 async function fetchOHLCV(symbol: string, tf: string, limit: number = 50): Promise<any[]> {
   const yahooSym = YAHOO_MAP[symbol.toUpperCase().replace('/', '')] ?? `${symbol.toUpperCase()}=X`;
   const interval = YAHOO_TF[tf] ?? '1d';
-  // 4H: fetch 1h and aggregate
   const needAggregate4h = tf === '4H';
   const actualInterval = needAggregate4h ? '1h' : interval;
   const range = actualInterval === '1m' ? '1d' : actualInterval === '5m' ? '5d' : actualInterval === '15m' ? '1mo' : actualInterval === '1h' ? '3mo' : '6mo';
 
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSym}?interval=${actualInterval}&range=${range}`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  if (!res.ok) return [];
-  const json: any = await res.json();
-  const result = json?.chart?.result?.[0];
-  if (!result) return [];
 
-  const ts: number[] = result.timestamp ?? [];
-  const q = result.indicators?.quote?.[0] ?? {};
-  const candles: any[] = [];
-  for (let i = 0; i < ts.length; i++) {
-    if (q.open?.[i] == null || q.close?.[i] == null) continue;
-    candles.push({
-      time: ts[i],
-      open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i],
-      volume: q.volume?.[i] ?? 0,
-    });
-  }
+  // Retry with backoff (Yahoo rate limits aggressively)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt));
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
+      if (res.status === 429) continue; // rate limited, retry
+      if (!res.ok) return [];
+      const json: any = await res.json();
+      const result = json?.chart?.result?.[0];
+      if (!result) return [];
 
-  // Aggregate 1h → 4h
-  if (needAggregate4h) {
-    const agg: any[] = [];
-    for (let i = 0; i < candles.length; i += 4) {
-      const chunk = candles.slice(i, i + 4);
-      if (chunk.length === 0) continue;
-      agg.push({
-        time: chunk[0].time,
-        open: chunk[0].open,
-        high: Math.max(...chunk.map(c => c.high)),
-        low: Math.min(...chunk.map(c => c.low)),
-        close: chunk[chunk.length - 1].close,
-        volume: chunk.reduce((s, c) => s + c.volume, 0),
-      });
+      const ts: number[] = result.timestamp ?? [];
+      const q = result.indicators?.quote?.[0] ?? {};
+      const candles: any[] = [];
+      for (let i = 0; i < ts.length; i++) {
+        if (q.open?.[i] == null || q.close?.[i] == null) continue;
+        candles.push({
+          time: ts[i],
+          open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i],
+          volume: q.volume?.[i] ?? 0,
+        });
+      }
+
+      if (needAggregate4h) {
+        const agg: any[] = [];
+        for (let i = 0; i < candles.length; i += 4) {
+          const chunk = candles.slice(i, i + 4);
+          if (chunk.length === 0) continue;
+          agg.push({
+            time: chunk[0].time,
+            open: chunk[0].open,
+            high: Math.max(...chunk.map(c => c.high)),
+            low: Math.min(...chunk.map(c => c.low)),
+            close: chunk[chunk.length - 1].close,
+            volume: chunk.reduce((s, c) => s + c.volume, 0),
+          });
+        }
+        return agg.slice(-limit);
+      }
+      return candles.slice(-limit);
+    } catch {
+      continue;
     }
-    return agg.slice(-limit);
   }
-  return candles.slice(-limit);
+  return []; // all retries failed, fallback to scanner levels
 }
 
 // ── Derive SMC levels from actual candle swing structure ──────────
@@ -189,7 +234,7 @@ async function getForexData(symbol: string, market: string = 'cfd', tf?: string)
 // Get multi-timeframe data (scanner + candle history) for structure analysis
 export async function getMultiTFData(env: Bindings, symbol: string, market: string, tf?: string, cache?: Cache): Promise<any> {
   const effectiveTf = tf || '1D';
-  const [tfData, weekData, candleResult] = await Promise.all([
+  const [tfData, weekData, candleResult, mt5Indicators] = await Promise.all([
     tvScan({
       columns: ['name', 'close', 'open', 'high', 'low', 'change', 'Recommend.All', 'RSI', 'EMA20', 'EMA50', 'ATR', 'High.1D', 'Low.1D', 'High.1W', 'Low.1W', 'High.1M', 'Low.1M', 'High.All', 'Low.All'],
       filter: [{ left: 'name', operation: 'equal', right: symbol }],
@@ -205,6 +250,8 @@ export async function getMultiTFData(env: Bindings, symbol: string, market: stri
     }),
     // Fetch actual candle history for swing-based level derivation (MT5 first, Yahoo fallback)
     getCandles(env, symbol, effectiveTf, 50, cache, () => fetchOHLCV(symbol, effectiveTf, 50)).catch(() => ({ candles: [], source: 'yahoo' as const })),
+    // Fetch real timeframe-specific indicators from MT5 broker
+    mt5FetchIndicators(env, symbol, effectiveTf, cache).catch(() => null),
   ]);
   const candles = candleResult.candles;
 
@@ -218,15 +265,21 @@ export async function getMultiTFData(env: Bindings, symbol: string, market: stri
   const high = d.d?.[3] ?? 0;
   const low = d.d?.[4] ?? 0;
 
+  // MT5 indicators override Scanner values — real broker data per timeframe
+  // Scanner returns D1-level indicators regardless of requested timeframe
+  const m5 = mt5Indicators;
+
   return {
     symbol: d.s,
     close, open, high, low,
     change: d.d?.[5],
     recommendation: d.d?.[6],
-    rsi: d.d?.[7],
-    ema20: d.d?.[8],
-    ema50: d.d?.[9],
-    atr: d.d?.[10],
+    // Use MT5 indicators when available (timeframe-specific), fallback to Scanner
+    rsi: m5?.rsi ?? d.d?.[7],
+    ema20: m5?.ema20 ?? d.d?.[8],
+    ema50: m5?.ema50 ?? d.d?.[9],
+    atr: m5?.atr ?? d.d?.[10],
+    sma200: m5?.sma200 ?? w?.d?.[7],
     high1M: d.d?.[15],
     low1M: d.d?.[16],
     high1W: d.d?.[13],
@@ -235,10 +288,11 @@ export async function getMultiTFData(env: Bindings, symbol: string, market: stri
     low1D: d.d?.[12],
     highAll: d.d?.[17],
     lowAll: d.d?.[18],
-    sma200: w?.d?.[7],
     perfWeek: w?.d?.[5],
     perfMonth: w?.d?.[6],
     candles: candles || [],
+    // Track data source for debugging
+    indicatorSource: m5 ? 'mt5' : 'scanner',
   };
 }
 
