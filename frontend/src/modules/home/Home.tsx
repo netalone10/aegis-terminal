@@ -43,6 +43,53 @@ function nextKillZoneCountdown(): string {
   return 'Next: Tokyo 00:00 UTC'
 }
 
+/* ── Market Status Helpers ── */
+
+function isForexOpen(): boolean {
+  const now = new Date()
+  const utcH = now.getUTCHours()
+  const utcDay = now.getUTCDay() // 0=Sun, 6=Sat
+  const month = now.getUTCMonth()
+  const isDST = month >= 2 && month <= 10
+
+  if (utcDay === 6) return false
+  if (utcDay === 0) return utcH >= (isDST ? 21 : 22)
+  if (utcDay === 5) return utcH < (isDST ? 21 : 22)
+  return true
+}
+
+function isGoldOpen(): boolean { return isForexOpen() }
+function isCryptoOpen(): boolean { return true }
+
+function nextForexOpen(): string {
+  const now = new Date()
+  const utcDay = now.getUTCDay()
+  const utcH = now.getUTCHours()
+  const utcM = now.getUTCMinutes()
+  const month = now.getUTCMonth()
+  const isDST = month >= 2 && month <= 10
+  const openUTC = isDST ? 21 : 22
+
+  if (isForexOpen()) {
+    if (utcDay === 5) {
+      const minsLeft = (22 - utcH) * 60 - utcM
+      return minsLeft > 0 ? `Closes in ${Math.floor(minsLeft/60)}h ${minsLeft%60}m` : 'Closing now'
+    }
+    return 'Open until Fri'
+  }
+
+  let daysUntilSunday = (7 - utcDay) % 7
+  if (daysUntilSunday === 0 && utcH >= openUTC) daysUntilSunday = 7
+  const minsUntil = daysUntilSunday * 24 * 60 + (openUTC - utcH) * 60 - utcM
+  if (minsUntil <= 0) return 'Opens now'
+  const d = Math.floor(minsUntil / 1440)
+  const h = Math.floor((minsUntil % 1440) / 60)
+  const m = minsUntil % 60
+  const wibH = (openUTC + 7) % 24
+  if (d > 0) return `Opens in ${d}d ${h}m (${wibH}:00 WIB)`
+  return `Opens in ${h}h ${m}m (${wibH}:00 WIB)`
+}
+
 /* ── Formatting ── */
 
 function biasColor(bias: string): string {
@@ -209,6 +256,34 @@ export default function Home() {
             <Clock size={16} style={{ color: killActive ? 'var(--kt-gold)' : 'var(--kt-muted)' }} />
             <span style={{ fontWeight: 600, fontSize: 'var(--sm)' }}>Session</span>
           </div>
+          {/* ── Market Status ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0' }}>
+            {[
+              { label: 'Forex', open: isForexOpen() },
+              { label: 'Gold', open: isGoldOpen() },
+              { label: 'Crypto', open: isCryptoOpen() },
+            ].map((m) => (
+              <div key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: m.open ? 'var(--kt-up)' : 'var(--kt-dn)', display: 'inline-block', flexShrink: 0 }} />
+                <span style={{ fontSize: 'var(--xs)', fontWeight: 600, color: 'var(--kt-text)', width: 40 }}>{m.label}</span>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                  color: m.open ? 'var(--kt-up)' : 'var(--kt-dn)',
+                  padding: '1px 6px', borderRadius: 3,
+                  background: m.open ? 'rgba(34,197,94,.10)' : 'rgba(239,68,68,.10)',
+                  border: `1px solid ${m.open ? 'rgba(34,197,94,.20)' : 'rgba(239,68,68,.20)'}`,
+                }}>
+                  {m.open ? 'OPEN' : 'CLOSED'}
+                </span>
+              </div>
+            ))}
+          </div>
+          {!isForexOpen() && (
+            <span style={{ fontSize: 9, color: 'var(--kt-muted)', fontFamily: 'var(--font-mono)' }}>
+              {nextForexOpen()}
+            </span>
+          )}
+          <div style={{ height: 1, background: 'var(--kt-border)', margin: '4px 0' }} />
           <div style={{
             padding: '6px 10px', borderRadius: 6,
             background: killActive ? 'rgba(245,158,11,.10)' : 'rgba(148,163,184,.06)',
