@@ -2,6 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const { getMarketRegime, getCorrelationChains, getSymbolBias } = require('./fundamental-engine');
+const { BybitWebSocket } = require('./bybit-ws');
+const { getTop10Coins } = require('./bybit-top-coins');
+const { generateSignal } = require('./crypto-signal-engine');
+const { sendTelegramAlert } = require('./crypto-alerts');
 
 const app = express();
 app.use(cors());
@@ -2043,4 +2047,159 @@ Rules:
 });
 
 // ═══════════════════════════════════════════════════════════════
+// CRYPTO SIGNAL GENERATOR
+// ═══════════════════════════════════════════════════════════════
+
+let cryptoWs = null;
+let topCoins = [];
+
+async function startCryptoEngine() {
+  try {
+    // Fetch top 10 coins
+    topCoins = await getTop10Coins();
+    console.log('Top coins:', topCoins);
+
+    // Start WebSocket
+    cryptoWs = new BybitWebSocket(async (kline) => {
+      console.log(`Kline close: ${kline.symbol} ${kline.timeframe}`);
+
+      // Fetch candles for signal generation
+      const h4 = await pool.query(
+        'SELECT * FROM crypto_candles WHERE symbol=$1 AND timeframe=$2 ORDER BY timestamp DESC LIMIT 100',
+        [kline.symbol, 'H4']
+      );
+      const h1 = await pool.query(
+        'SELECT * FROM crypto_candles WHERE symbol=$1 AND timeframe=$2 ORDER BY timestamp DESC LIMIT 100',
+        [kline.symbol, 'H1']
+      );
+      const m15 = await pool.query(
+        'SELECT * FROM crypto_candles WHERE symbol=$1 AND timeframe=$2 ORDER BY timestamp DESC LIMIT 100',
+        [kline.symbol, 'M15']
+      );
+
+      if (h4.rows.length < 20 || h1.rows.length < 20 || m15.rows.length < 20) {
+        return; // Not enough data
+      }
+
+      // Generate signal
+      const signal = generateSignal(
+        kline.symbol,
+        kline.timeframe,
+        h4.rows.reverse(),
+        h1.rows.reverse(),
+        m15.rows.reverse()
+      );
+
+      if (signal && signal.confidence >= 60) {
+        // Store signal
+        await pool.query(
+          `INSERT INTO crypto_signals (symbol, timeframe, bias, confidence, price, structure, technical, volume, setups, confluence_score, reasoning, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW() + INTERVAL '24 hours')`,
+          [signal.symbol, signal.timeframe, signal.bias, signal.confidence, signal.price,
+           JSON.stringify(signal.structure), JSON.stringify(signal.technical), JSON.stringify(signal.volume),
+           JSON.stringify(signal.setups), signal.confluenceScore, signal.reasoning]
+        );
+
+        // Send alert
+        await sendTelegramAlert(signal);
+      }
+
+      // Log screening
+      await pool.query(
+        'INSERT INTO crypto_screening (symbol, scan_time, signal_generated, metadata) VALUES ($1, NOW(), $2, $3)',
+        [kline.symbol, !!signal, JSON.stringify({ timeframe: kline.timeframe, confidence: signal?.confidence })]
+      );
+    });
+
+    cryptoWs.connect();
+    cryptoWs.subscribe(topCoins);
+  } catch (err) {
+    console.error('Failed to start crypto engine:', err);
+  }
+}
+
+// Crypto endpoints
+app.get('/api/crypto/screening', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT symbol, rank, volume_24h FROM crypto_top_coins ORDER BY rank ASC'
+    );
+    res.json({ symbols: result.rows, lastScan: new Date() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/crypto/signals', async (req, res) => {
+  try {
+    const { symbol, timeframe, bias, limit = 20 } = req.query;
+    let query = 'SELECT * FROM crypto_signals WHERE status = $1';
+    const params = ['active'];
+
+    if (symbol) {
+      query += ` AND symbol = $${params.length + 1}`;
+      params.push(symbol.toUpperCase());
+    }
+    if (timeframe) {
+      query += ` AND timeframe = $${params.length + 1}`;
+      params.push(timeframe.toUpperCase());
+    }
+    if (bias) {
+      query += ` AND bias = $${params.length + 1}`;
+      params.push(bias.toLowerCase());
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
+    params.push(parseInt(limit));
+
+    const result = await pool.query(query, params);
+    res.json({ signals: result.rows, total: result.rowCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/crypto/live/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const result = await pool.query(
+      'SELECT * FROM crypto_candles WHERE symbol=$1 ORDER BY timestamp DESC LIMIT 1',
+      [symbol]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Symbol not found' });
+    }
+
+    const candle = result.rows[0];
+    res.json({
+      symbol,
+      price: candle.close,
+      lastUpdate: new Date(candle.timestamp * 1000),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/crypto/history/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const { limit = 50, offset = 0 } = req.query;
+
+    const result = await pool.query(
+      'SELECT * FROM crypto_signals WHERE symbol=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      [symbol, parseInt(limit), parseInt(offset)]
+    );
+
+    res.json({ signals: result.rows, total: result.rowCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 console.log('Endpoints: + /api/context/weekly/:symbol, /api/context/daily/:symbol, /api/ai/narrative');
+
+// Start crypto engine on server boot
+startCryptoEngine();
