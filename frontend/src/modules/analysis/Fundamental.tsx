@@ -202,7 +202,7 @@ function RegimeSection({ regime }: { regime: RegimeData }) {
           background: uc.bg, border: '1px solid transparent',
           fontSize: 12, fontWeight: 600, color: uc.text,
         }}>
-          USD {regime.usdStrength.charAt(0).toUpperCase() + regime.usdStrength.slice(1)}
+          USD {String(regime.usdStrength).charAt(0).toUpperCase() + String(regime.usdStrength).slice(1)}
         </div>
 
         {/* Confidence */}
