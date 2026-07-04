@@ -3,7 +3,7 @@ import { useState } from 'react'
 import {
   TrendingUp, TrendingDown, Minus, AlertTriangle,
   Shield, ArrowUpRight, ArrowDownRight, BarChart3,
-  RefreshCw, Calendar,
+  RefreshCw, Calendar, Clock, Globe,
 } from 'lucide-react'
 import { api } from '../../lib/api'
 
@@ -158,6 +158,132 @@ function CountryFlag({ code }: { code: string }) {
     CA: '🇨🇦', AU: '🇦🇺', CN: '🇨🇳', CH: '🇨🇭', NZ: '🇳🇿',
   }
   return <span>{flags[code] ?? code}</span>
+}
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* ── MARKET STATUS BAR ────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════ */
+interface MarketStatus {
+  name: string
+  icon: string
+  open: boolean
+  nextOpen?: string
+}
+
+function getMarketStatuses(): MarketStatus[] {
+  const now = new Date()
+  const utcHour = now.getUTCHours()
+  const utcDay = now.getUTCDay() // 0=Sun, 6=Sat
+  const utcMin = now.getUTCMinutes()
+  const totalMin = utcHour * 60 + utcMin
+
+  // DST check: Mar second Sun → Nov first Sun
+  const year = now.getUTCFullYear()
+  const marchSun1 = 8 - new Date(Date.UTC(year, 2, 1)).getUTCDay()
+  const marchSun2 = marchSun1 + 7
+  const novSun1 = 8 - new Date(Date.UTC(year, 10, 1)).getUTCDay()
+  const isDST = (now >= new Date(Date.UTC(year, 2, marchSun2, 7, 0)) &&
+    now < new Date(Date.UTC(year, 10, novSun1, 6, 0)))
+
+  // Forex: Opens Sun 17:00 ET (UTC-4 DST, UTC-5 standard) → Fri 17:00 ET
+  // In UTC: DST 21:00 Sun, Standard 22:00 Sun
+  const fxOpenUTC = isDST ? 21 : 22
+  const fxCloseUTC = fxOpenUTC
+
+  // Forex is open from Sun 17:00 ET to Fri 17:00 ET
+  let forexOpen = false
+  if (utcDay === 0 && totalMin >= fxOpenUTC * 60) forexOpen = true
+  else if (utcDay >= 1 && utcDay <= 4) forexOpen = true
+  else if (utcDay === 5 && totalMin < fxCloseUTC * 60) forexOpen = true
+
+  // NYSE/NASDAQ: Mon-Fri 09:30-16:00 ET
+  // UTC: DST 13:30-20:00, Standard 14:30-21:00
+  const stockOpenUTC = isDST ? 13.5 : 14.5
+  const stockCloseUTC = isDST ? 20 : 21
+  let stocksOpen = false
+  if (utcDay >= 1 && utcDay <= 5) {
+    if (totalMin >= stockOpenUTC * 60 && totalMin < stockCloseUTC * 60) stocksOpen = true
+  }
+
+  // Gold (XAUUSD): Same as forex hours
+  const goldOpen = forexOpen
+
+  // Crypto: Always open
+  const cryptoOpen = true
+
+  function nextOpenText(open: boolean, market: string): string | undefined {
+    if (open) return undefined
+    if (market === 'crypto') return undefined
+    // Next Monday 04:00 WIB = Sun 21:00 UTC (DST) or 22:00 UTC (std)
+    if (utcDay === 6 || (utcDay === 0 && totalMin < fxOpenUTC * 60)) {
+      return 'Opens tonight ~04:00 WIB'
+    }
+    if (utcDay === 5 && totalMin >= fxCloseUTC * 60) {
+      return 'Opens Sunday ~04:00 WIB'
+    }
+    if (utcDay === 0 && totalMin < fxOpenUTC * 60) {
+      return 'Opens today ~04:00 WIB'
+    }
+    return 'Opens next session'
+  }
+
+  return [
+    { name: 'Forex', icon: '💱', open: forexOpen, nextOpen: nextOpenText(forexOpen, 'forex') },
+    { name: 'Stocks', icon: '📊', open: stocksOpen, nextOpen: nextOpenText(stocksOpen, 'stocks') },
+    { name: 'Gold', icon: '🥇', open: goldOpen, nextOpen: nextOpenText(goldOpen, 'gold') },
+    { name: 'Crypto', icon: '₿', open: cryptoOpen },
+  ]
+}
+
+function MarketStatusBar() {
+  const markets = getMarketStatuses()
+  const now = new Date()
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta' })
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Asia/Jakarta' })
+
+  return (
+    <div style={{
+      ...CARD_STYLE,
+      background: 'linear-gradient(135deg, #12121a 0%, #1a1a2e 100%)',
+    }}>
+      <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Globe size={14} style={{ color: '#f59e0b' }} />
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>Market Hours</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b' }}>
+            <Clock size={11} />
+            {timeStr} WIB · {dateStr}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {markets.map((m) => (
+            <div key={m.name} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '4px 10px', borderRadius: 6,
+              background: m.open ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.06)',
+              border: `1px solid ${m.open ? 'rgba(34,197,94,.2)' : 'rgba(239,68,68,.12)'}`,
+            }}>
+              <span style={{ fontSize: 12 }}>{m.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: m.open ? '#22c55e' : '#ef4444' }}>
+                {m.name}
+              </span>
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: m.open ? '#22c55e' : '#ef4444',
+                boxShadow: m.open ? '0 0 6px rgba(34,197,94,.5)' : 'none',
+                animation: m.open ? 'pulse-dot 2s infinite' : 'none',
+              }} />
+              {m.nextOpen && (
+                <span style={{ fontSize: 9, color: '#64748b', whiteSpace: 'nowrap' }}>
+                  {m.nextOpen}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /* ══════════════════════════════════════════════════════════════════════ */
@@ -391,7 +517,7 @@ function ImpactsSection({ releases }: { releases: ImpactRelease[] }) {
                   color: surpriseColor(rel.surprisePct),
                   fontWeight: 600,
                 }}>
-                  {rel.surprisePct != null ? `${rel.surprisePct > 0 ? '+' : ''}${rel.surprisePct.toFixed(1)}%` : '—'}
+                  {rel.surprisePct != null ? `${Number(rel.surprisePct) > 0 ? '+' : ''}${Number(rel.surprisePct).toFixed(1)}%` : '—'}
                 </td>
                 <td style={{ padding: '7px 12px', textAlign: 'right' }}>
                   {rel.surprisePct != null && (
@@ -767,6 +893,9 @@ export default function Fundamental() {
           Live · 60s refresh
         </span>
       </div>
+
+      {/* ═══ MARKET STATUS ═══ */}
+      <MarketStatusBar />
 
       {/* ═══ LOADING ═══ */}
       {isLoading && (

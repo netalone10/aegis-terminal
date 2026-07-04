@@ -1151,9 +1151,83 @@ app.get('/api/economic-calendar/:week', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// PHASE 6: SMT ENGINE
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 6: MACRO DASHBOARD
 // ═══════════════════════════════════════════════════════════════
 
+app.get("/api/macro/latest", async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT i.indicator, i.label, i.category, i.unit,
+             v.value, v.prev_value as "prevValue", v.change_pct as "changePct", v.date
+      FROM macro_indicators i
+      LEFT JOIN LATERAL (
+        SELECT value, prev_value, change_pct, date
+        FROM macro_values WHERE indicator_id = i.id
+        ORDER BY date DESC LIMIT 1
+      ) v ON true
+      WHERE i.enabled = true
+      ORDER BY i.display_order
+    `);
+    res.json({ status: "ok", data: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/macro/sparkline", async (req, res) => {
+  try {
+    const { indicator } = req.query;
+    const range = req.query.range || "1y";
+    const rangeDays = { "3m": 90, "6m": 180, "1y": 365, "2y": 730, "5y": 1825 };
+    const days = rangeDays[range] || 365;
+    const indRes = await pool.query("SELECT id, indicator, label, unit FROM macro_indicators WHERE indicator = $1", [indicator]);
+    if (indRes.rows.length === 0) return res.status(404).json({ error: "Unknown indicator" });
+    const ind = indRes.rows[0];
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const { rows } = await pool.query(
+      "SELECT date, value FROM macro_values WHERE indicator_id = $1 AND date >= $2 ORDER BY date ASC",
+      [ind.id, cutoff.toISOString().split("T")[0]]
+    );
+    res.json({ status: "ok", data: { indicator: ind.indicator, label: ind.label, unit: ind.unit, series: rows } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/macro/history", async (req, res) => {
+  try {
+    const { indicator } = req.query;
+    const limit = parseInt(req.query.limit || "100");
+    const indRes = await pool.query("SELECT id, indicator, label, unit FROM macro_indicators WHERE indicator = $1", [indicator]);
+    if (indRes.rows.length === 0) return res.status(404).json({ error: "Unknown indicator" });
+    const ind = indRes.rows[0];
+    const { rows } = await pool.query(
+      "SELECT date, value, prev_value as \"prevValue\", change_pct as \"changePct\" FROM macro_values WHERE indicator_id = $1 ORDER BY date DESC LIMIT $2",
+      [ind.id, limit]
+    );
+    res.json({ status: "ok", data: { indicator: ind.indicator, label: ind.label, unit: ind.unit, records: rows } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/macro/config", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT indicator, label, category, unit, enabled, display_order as \"displayOrder\" FROM macro_indicators ORDER BY display_order"
+    );
+    res.json({ status: "ok", data: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 7: SMT ENGINE
+// ═══════════════════════════════════════════════════════════════
 app.get('/api/smt/:symbol', async (req, res) => {
   try {
     const symbol = req.params.symbol.toUpperCase();
@@ -1305,7 +1379,7 @@ app.get('/api/smt/:symbol', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// PHASE 7: UNIFIED SIGNAL GENERATOR
+// PHASE 8: UNIFIED SIGNAL GENERATOR
 // ═══════════════════════════════════════════════════════════════
 
 app.get('/api/unified-signal/:symbol', async (req, res) => {

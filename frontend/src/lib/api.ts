@@ -17,6 +17,7 @@ const VPS_PREFIXES = [
   '/api/event-release',
   '/api/signals/history',
   '/api/query',
+  '/api/macro',
   '/api/context/weekly',
   '/api/context/daily',
   '/api/ai/narrative',

@@ -5,6 +5,7 @@ import {
   Clock, Wifi, WifiOff, Zap, Target, BarChart3, Shield,
 } from 'lucide-react'
 import { api } from '../../lib/api'
+import { MacroWidget } from '../macro/MacroWidget'
 
 /* ── Kill Zone Helpers ── */
 
@@ -709,6 +710,9 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* Macro Overview Widget */}
+      <MacroWidget />
     </div>
   )
 }
