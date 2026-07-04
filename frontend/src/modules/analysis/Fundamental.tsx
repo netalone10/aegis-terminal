@@ -29,7 +29,7 @@ interface ChainData {
   status: 'active' | 'stalled'
   trend: 'rising' | 'falling' | 'neutral'
   releases: ChainRelease[]
-  prediction: string
+  prediction: { nextEvent: string; expectation: string; confidence: number } | null
 }
 
 interface ImpactRelease {
@@ -293,12 +293,13 @@ function ChainsSection({ chains }: { chains: ChainData[] }) {
               </div>
 
               {/* Prediction */}
-              {chain.prediction && (
+              {chain.prediction && typeof chain.prediction === 'object' && (
                 <div style={{
                   padding: '8px 12px', borderTop: '1px solid rgba(30,30,46,.5)',
-                  fontSize: 11, color: '#94a3b8', fontStyle: 'italic',
+                  fontSize: 11, color: '#94a3b8',
                 }}>
-                  💡 {chain.prediction}
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>💡 Next: {(chain.prediction as any).nextEvent}</div>
+                  <div>Expectation: {(chain.prediction as any).expectation} · Confidence: {(chain.prediction as any).confidence}%</div>
                 </div>
               )}
             </div>
