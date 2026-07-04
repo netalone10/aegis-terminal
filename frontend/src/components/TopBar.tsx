@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import { api } from '../lib/api'
-import { ChevronDown, ChevronRight, Menu, X, Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase, Zap, BarChart3 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Menu, X, Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase, Zap, BarChart3, Bitcoin } from 'lucide-react'
 import { useState } from 'react'
 
 type NavItem = { to: string; label: string; icon: LucideIcon }
@@ -49,6 +49,13 @@ const NEW_NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/portfolio', label: 'Trade Manager', icon: Briefcase },
       { to: '/market', label: 'Market', icon: CandlestickChart },
+    ],
+  },
+  {
+    label: 'CRYPTO',
+    items: [
+      { to: '/crypto', label: 'Crypto Screener', icon: Bitcoin },
+      { to: '/crypto/signals', label: 'Crypto Signals', icon: Zap },
     ],
   },
 ]
