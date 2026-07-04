@@ -3,7 +3,7 @@ import type { Bindings } from '../index';
 
 export const cryptoRoutes = new Hono<{ Bindings: Bindings }>();
 
-const VPS_API = 'http://129.226.151.57:3001';
+const VPS_API = 'https://engine.aegisterminal.app';
 
 cryptoRoutes.get('/screening', async (c) => {
   try {
