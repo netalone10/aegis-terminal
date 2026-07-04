@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const { getMarketRegime, getCorrelationChains, getSymbolBias } = require('./fundamental-engine');
 
 const app = express();
 app.use(cors());
@@ -811,6 +812,182 @@ app.get('/api/entry/:symbol', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // PHASE 5: FUNDAMENTAL ENGINE
 // ═══════════════════════════════════════════════════════════════
+
+// ─── Market Regime ───────────────────────────────────────────
+app.get('/api/fundamental/regime', async (req, res) => {
+  try {
+    const regime = await getMarketRegime(pool);
+    res.json({ status: 'ok', data: regime });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Correlation Chains ───────────────────────────────────────
+app.get('/api/fundamental/chains', async (req, res) => {
+  try {
+    const chains = await getCorrelationChains(pool);
+    res.json({ status: 'ok', data: chains });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Impact Releases ─────────────────────────────────────────
+app.get('/api/fundamental/impacts', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit || '20');
+    const { rows } = await pool.query(`
+      SELECT e.event_name as event, er.release_date as date, e.country,
+             e.impact_tier as "impactTier", er.consensus, er.actual,
+             er.previous, er.surprise_pct as "surprisePct", e.affected_symbols as "affectedSymbols"
+      FROM event_releases er
+      JOIN economic_events e ON e.id = er.event_id
+      WHERE er.actual IS NOT NULL
+      ORDER BY er.release_date DESC
+      LIMIT $1
+    `, [limit]);
+    res.json({ status: 'ok', data: { releases: rows } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Weekly Map ──────────────────────────────────────────────
+app.get('/api/fundamental/weekly-map', async (req, res) => {
+  try {
+    const now = new Date();
+    const dayOfWeek = now.getUTCDay() || 7;
+    // Compute weekStart manually (getWeekStart expects number/string, not Date)
+    const dayDow = now.getUTCDay();
+    const weekStart = new Date(now);
+    weekStart.setUTCDate(now.getUTCDate() - ((dayDow + 6) % 7));
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+
+    // Get events for this week
+    const { rows: weekEvents } = await pool.query(`
+      SELECT e.event_name, e.impact_tier, e.release_time_utc, e.country,
+             er.release_date, e.correlation_chain
+      FROM economic_events e
+      LEFT JOIN event_releases er ON er.event_id = e.id
+      WHERE er.release_date >= $1::date
+      AND er.release_date < ($1::date + interval '7 days')
+      ORDER BY er.release_date, e.release_time_utc
+    `, [weekStartStr]);
+
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+    const result = days.map((day, i) => {
+      const dayNum = i + 1;
+      const profile = DAY_PROFILES[dayNum] || { type: 'unknown', fundamentalWeight: 0.5 };
+      const dayDate = new Date(weekStartStr + 'T00:00:00Z');
+      dayDate.setUTCDate(dayDate.getUTCDate() + i);
+      const dateStr = dayDate.toISOString().split('T')[0];
+
+      const dayEvents = weekEvents
+        .filter(e => {
+          if (!e.release_date) return false;
+          const rd = e.release_date instanceof Date ? e.release_date.toISOString().split('T')[0] : String(e.release_date).split('T')[0];
+          return rd === dateStr;
+        })
+        .map(e => ({
+          name: e.event_name,
+          time: e.release_time_utc,
+          tier: e.impact_tier,
+          country: e.country,
+        }));
+
+      return {
+        day,
+        type: profile.type,
+        weight: profile.fundamentalWeight,
+        isToday: dayNum === dayOfWeek,
+        events: dayEvents,
+      };
+    });
+
+    res.json({ status: 'ok', data: { days: result, week_start: weekStartStr } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Symbol Bias ─────────────────────────────────────────────
+app.get('/api/fundamental/bias', async (req, res) => {
+  try {
+    const bias = await getSymbolBias(pool);
+    res.json({ status: 'ok', data: bias });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── AI Narrative ────────────────────────────────────────────
+app.get('/api/fundamental/narrative', async (req, res) => {
+  try {
+    const symbol = (req.query.symbol || 'XAUUSD').toUpperCase();
+    const validSymbols = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD'];
+    if (!validSymbols.includes(symbol)) {
+      return res.status(400).json({ error: `Invalid symbol. Use one of: ${validSymbols.join(', ')}` });
+    }
+
+    // Gather context
+    const [regime, chains, biasResult] = await Promise.all([
+      getMarketRegime(pool),
+      getCorrelationChains(pool),
+      getSymbolBias(pool),
+    ]);
+
+    const symbolBias = biasResult.symbols.find(s => s.symbol === symbol) || biasResult.symbols[0];
+
+    const contextData = {
+      symbol,
+      regime: { regime: regime.regime, tone: regime.tone, usdStrength: regime.usdStrength, confidence: regime.confidence },
+      chains: chains.chains.map(c => ({ name: c.name, trend: c.trend, status: c.status, prediction: c.prediction })),
+      bias: symbolBias,
+    };
+
+    const systemPrompt = `You are a fundamental analysis expert. Given the market data, write a concise 3-paragraph analysis of the current fundamental landscape for ${symbol}. First paragraph: current regime and macro backdrop. Second paragraph: key correlations and chain status. Third paragraph: bias and what to watch.`;
+
+    const mimoRes = await fetch(`${MIMO_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${MIMO_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MIMO_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Fundamental Data:\n${JSON.stringify(contextData, null, 2)}` },
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+        stream: false,
+      }),
+    });
+
+    if (!mimoRes.ok) {
+      const errText = await mimoRes.text();
+      return res.status(502).json({ error: `AI API error: ${mimoRes.status}`, detail: errText });
+    }
+
+    const aiData = await mimoRes.json();
+    const narrative = aiData.choices?.[0]?.message?.content || '';
+
+    res.json({
+      status: 'ok',
+      data: {
+        narrative,
+        generated: new Date().toISOString(),
+        symbol,
+        context: contextData,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get('/api/fundamental-context/:symbol', async (req, res) => {
   try {

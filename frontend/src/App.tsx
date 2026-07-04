@@ -15,6 +15,7 @@ import Journal from './modules/analysis/Journal'
 import Signals from './modules/analysis/Signals'
 import WeeklyOutlook from './modules/analysis/WeeklyOutlook'
 import DailyOutlook from './modules/analysis/DailyOutlook'
+import Fundamental from './modules/analysis/Fundamental'
 import Market from './modules/market/Market'
 import Portfolio from './modules/portfolio/Portfolio'
 
@@ -50,6 +51,7 @@ function AppShell() {
             <Route path="/signals" element={<Signals />} />
             <Route path="/weekly-outlook" element={<WeeklyOutlook />} />
             <Route path="/daily-outlook" element={<DailyOutlook />} />
+            <Route path="/fundamental" element={<Fundamental />} />
             <Route path="/market" element={<Market />} />
             <Route path="/portfolio" element={<Portfolio />} />
           </Routes>

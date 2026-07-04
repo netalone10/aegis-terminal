@@ -25,6 +25,7 @@ const NEW_NAV_GROUPS: NavGroup[] = [
       { to: '/signals', label: 'Signals', icon: Zap },
       { to: '/weekly-outlook', label: 'Weekly Outlook', icon: Calendar },
       { to: '/daily-outlook', label: 'Daily Outlook', icon: BarChart3 },
+      { to: '/fundamental', label: 'Fundamental', icon: BarChart3 },
     ],
   },
   {

@@ -20,6 +20,7 @@ const VPS_PREFIXES = [
   '/api/context/weekly',
   '/api/context/daily',
   '/api/ai/narrative',
+  '/api/fundamental',
 ];
 
 function getBase(path: string): string {
