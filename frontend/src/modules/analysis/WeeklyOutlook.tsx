@@ -289,6 +289,15 @@ export default function WeeklyOutlook() {
     retry: 1,
   })
 
+  // Deep analysis for XAUUSD
+  const { data: deepAnalysis } = useQuery<any>({
+    queryKey: ['xau-deep-analysis'],
+    queryFn: () => api('/api/xau/deep-analysis'),
+    staleTime: 300_000,
+    retry: 1,
+    enabled: symbol === 'XAUUSD',
+  })
+
   const generateMutation = useMutation<NarrativeResult, Error, void>({
     mutationFn: async () => {
       if (!context) throw new Error('No context loaded')
@@ -423,6 +432,103 @@ export default function WeeklyOutlook() {
                 </div>
               </div>
             </div>
+
+            {/* Deep Analysis (XAUUSD only) */}
+            {symbol === 'XAUUSD' && deepAnalysis && (
+              <div style={{ marginBottom: 20 }}>
+                {/* Market Structure */}
+                <div style={S.narrativeBox}>
+                  <div style={S.sectionTitle}>
+                    <Target size={16} color="#f59e0b" />
+                    Market Structure & Technical
+                  </div>
+                  
+                  {/* Bias + Confluence */}
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                    <div style={{ flex: 1, padding: 12, background: 'rgba(255,255,255,.03)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 4 }}>OVERALL BIAS</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: deepAnalysis.bias === 'bullish' ? '#22c55e' : deepAnalysis.bias === 'bearish' ? '#ef4444' : '#94a3b8' }}>
+                        {deepAnalysis.bias?.toUpperCase()}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>Confluence: {deepAnalysis.confluenceScore}%</div>
+                    </div>
+                    <div style={{ flex: 1, padding: 12, background: 'rgba(255,255,255,.03)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 4 }}>TREND (D1/H4/H1)</div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {['daily', 'h4', 'h1'].map(tf => (
+                          <span key={tf} style={{ fontSize: 12, fontWeight: 600, color: deepAnalysis.trend?.[tf]?.direction === 'bullish' ? '#22c55e' : deepAnalysis.trend?.[tf]?.direction === 'bearish' ? '#ef4444' : '#94a3b8' }}>
+                            {tf.toUpperCase()}: {deepAnalysis.trend?.[tf]?.direction?.slice(0, 3)?.toUpperCase()}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Technical Indicators */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+                    {[
+                      { label: 'RSI', value: deepAnalysis.technicals?.rsi?.value, sub: deepAnalysis.technicals?.rsi?.interpretation, color: deepAnalysis.technicals?.rsi?.value > 70 ? '#ef4444' : deepAnalysis.technicals?.rsi?.value < 30 ? '#22c55e' : '#f59e0b' },
+                      { label: 'MACD', value: deepAnalysis.technicals?.macd?.histogram, sub: deepAnalysis.technicals?.macd?.interpretation, color: deepAnalysis.technicals?.macd?.histogram > 0 ? '#22c55e' : '#ef4444' },
+                      { label: 'BB Width', value: `${deepAnalysis.technicals?.bollinger?.width}%`, sub: 'volatility', color: '#f59e0b' },
+                      { label: 'ATR', value: `$${deepAnalysis.technicals?.atr}`, sub: 'daily range', color: '#94a3b8' },
+                    ].map((item, i) => (
+                      <div key={i} style={{ padding: 10, background: 'rgba(255,255,255,.03)', borderRadius: 8, textAlign: 'center' }}>
+                        <div style={{ fontSize: 9, color: '#94a3b8', marginBottom: 2 }}>{item.label}</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: item.color }}>{item.value}</div>
+                        <div style={{ fontSize: 9, color: '#64748b' }}>{item.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Key Levels */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', marginBottom: 8 }}>KEY LEVELS</div>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 9, color: '#94a3b8', marginBottom: 4 }}>SUPPORT</div>
+                        {deepAnalysis.keyLevels?.support?.map((l: any, i: number) => (
+                          <div key={i} style={{ fontSize: 12, color: '#22c55e', marginBottom: 2 }}>
+                            ${l.price} <span style={{ fontSize: 9, color: '#64748b' }}>({l.strength})</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 9, color: '#94a3b8', marginBottom: 4 }}>RESISTANCE</div>
+                        {deepAnalysis.keyLevels?.resistance?.map((l: any, i: number) => (
+                          <div key={i} style={{ fontSize: 12, color: '#ef4444', marginBottom: 2 }}>
+                            ${l.price} <span style={{ fontSize: 9, color: '#64748b' }}>({l.strength})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Weekly Prediction */}
+                  <div style={{ padding: 12, background: 'rgba(245,158,11,.05)', borderRadius: 8, border: '1px solid rgba(245,158,11,.2)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', marginBottom: 8 }}>
+                      <Target size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                      WEEKLY OUTLOOK
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>
+                      Expected Range: ${deepAnalysis.prediction?.expectedLow} — ${deepAnalysis.prediction?.expectedHigh}
+                    </div>
+                    {deepAnalysis.prediction?.scenarios?.map((sc: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,.05)' : 'none' }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>{sc.name}</div>
+                          <div style={{ fontSize: 10, color: '#94a3b8' }}>
+                            Target: ${sc.target} | SL: ${sc.invalidation} | RR: {sc.riskReward}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: sc.probability >= 50 ? '#22c55e' : '#f59e0b' }}>
+                          {sc.probability}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* AI Narrative */}
             <div style={S.narrativeBox}>

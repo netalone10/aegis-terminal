@@ -10,7 +10,7 @@ const pool = new Pool({
 });
 
 const BYBIT_WS = 'wss://stream.bybit.com/v5/public/linear';
-const KLINE_INTERVALS = { '5': 'M5', '15': 'M15', '60': 'H1', '240': 'H4' };
+const KLINE_INTERVALS = { '1': 'M1', '5': 'M5', '15': 'M15', '60': 'H1', '240': 'H4' };
 
 class BybitWebSocket {
   constructor(onKlineClose) {
@@ -80,7 +80,7 @@ class BybitWebSocket {
       low: parseFloat(kline.low),
       close: parseFloat(kline.close),
       volume: parseFloat(kline.volume),
-      timestamp: Math.floor(kline.start / 1000), // Convert ms to seconds
+      timestamp: kline.start, // Keep as ms — DB stores milliseconds
       isClosed: kline.confirm, // True when candle is closed
     };
 

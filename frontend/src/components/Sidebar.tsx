@@ -48,6 +48,8 @@ const navSections = [
     items: [
       { to: '/crypto', label: 'Crypto Screener', icon: Bitcoin },
       { to: '/crypto/signals', label: 'Crypto Signals', icon: Zap },
+      { to: '/crypto/scalp', label: 'BTC Scalp', icon: Zap },
+      { to: '/crypto/performance', label: 'Performance', icon: BarChart3 },
     ],
   },
 ]

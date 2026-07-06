@@ -2,10 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const { getMarketRegime, getCorrelationChains, getSymbolBias } = require('./fundamental-engine');
-const { BybitWebSocket } = require('./bybit-ws');
-const { getTop10Coins } = require('./bybit-top-coins');
-const { generateSignal } = require('./crypto-signal-engine');
-const { sendTelegramAlert } = require('./crypto-alerts');
 
 const app = express();
 app.use(cors());
@@ -2047,159 +2043,303 @@ Rules:
 });
 
 // ═══════════════════════════════════════════════════════════════
-// CRYPTO SIGNAL GENERATOR
+console.log('Endpoints: + /api/context/weekly/:symbol, /api/context/daily/:symbol, /api/ai/narrative');
+
+// XAUUSD Deep Analysis
+const { analyzeXAUUSD } = require("./xau-deep-analysis");
+app.get("/api/xau/deep-analysis", async (req, res) => {
+  try {
+    const analysis = await analyzeXAUUSD();
+    if (!analysis) return res.status(404).json({ error: "Insufficient data" });
+    res.json({ status: "ok", data: analysis });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CRYPTO SIGNALS
 // ═══════════════════════════════════════════════════════════════
 
-let cryptoWs = null;
-let topCoins = [];
-
-async function startCryptoEngine() {
+// Get active signals
+app.get('/api/crypto/signals', async (req, res) => {
   try {
-    // Fetch top 10 coins
-    topCoins = await getTop10Coins();
-    console.log('Top coins:', topCoins);
-
-    // Start WebSocket
-    cryptoWs = new BybitWebSocket(async (kline) => {
-      console.log(`Kline close: ${kline.symbol} ${kline.timeframe}`);
-
-      // Fetch candles for signal generation
-      const h4 = await pool.query(
-        'SELECT * FROM crypto_candles WHERE symbol=$1 AND timeframe=$2 ORDER BY timestamp DESC LIMIT 100',
-        [kline.symbol, 'H4']
-      );
-      const h1 = await pool.query(
-        'SELECT * FROM crypto_candles WHERE symbol=$1 AND timeframe=$2 ORDER BY timestamp DESC LIMIT 100',
-        [kline.symbol, 'H1']
-      );
-      const m15 = await pool.query(
-        'SELECT * FROM crypto_candles WHERE symbol=$1 AND timeframe=$2 ORDER BY timestamp DESC LIMIT 100',
-        [kline.symbol, 'M15']
-      );
-
-      if (h4.rows.length < 20 || h1.rows.length < 20 || m15.rows.length < 20) {
-        return; // Not enough data
-      }
-
-      // Generate signal
-      const signal = generateSignal(
-        kline.symbol,
-        kline.timeframe,
-        h4.rows.reverse(),
-        h1.rows.reverse(),
-        m15.rows.reverse()
-      );
-
-      if (signal && signal.confidence >= 60) {
-        // Store signal
-        await pool.query(
-          `INSERT INTO crypto_signals (symbol, timeframe, bias, confidence, price, structure, technical, volume, setups, confluence_score, reasoning, expires_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW() + INTERVAL '24 hours')`,
-          [signal.symbol, signal.timeframe, signal.bias, signal.confidence, signal.price,
-           JSON.stringify(signal.structure), JSON.stringify(signal.technical), JSON.stringify(signal.volume),
-           JSON.stringify(signal.setups), signal.confluenceScore, signal.reasoning]
-        );
-
-        // Send alert
-        await sendTelegramAlert(signal);
-      }
-
-      // Log screening
-      await pool.query(
-        'INSERT INTO crypto_screening (symbol, scan_time, signal_generated, metadata) VALUES ($1, NOW(), $2, $3)',
-        [kline.symbol, !!signal, JSON.stringify({ timeframe: kline.timeframe, confidence: signal?.confidence })]
-      );
-    });
-
-    cryptoWs.connect();
-    cryptoWs.subscribe(topCoins);
-  } catch (err) {
-    console.error('Failed to start crypto engine:', err);
+    const limit = parseInt(req.query.limit) || 20;
+    const result = await pool.query(
+      `SELECT id, symbol, timeframe, bias, confidence, price, entry_price, stop_loss, take_profit, risk_reward,
+              setups, reasoning, confluence_score, status, hit_tp, hit_sl, closed_at, exit_price, pnl_pct, created_at
+       FROM crypto_signals
+       WHERE status = 'active'
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    res.json({ status: 'ok', signals: result.rows, total: result.rows.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-}
+});
 
-// Crypto endpoints
+// Get signal history (closed signals with performance)
+app.get('/api/crypto/signals/history', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const result = await pool.query(
+      `SELECT id, symbol, timeframe, bias, confidence, price, entry_price, stop_loss, take_profit, risk_reward,
+              status, hit_tp, hit_sl, closed_at, exit_price, pnl_pct, created_at
+       FROM crypto_signals
+       WHERE status IN ('closed', 'expired', 'hit_tp', 'hit_sl')
+       ORDER BY closed_at DESC NULLS LAST, created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    res.json({ status: 'ok', history: result.rows, total: result.rows.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get signal stats
+app.get('/api/crypto/signals/stats', async (req, res) => {
+  try {
+    const total = await pool.query('SELECT COUNT(*) as count FROM crypto_signals');
+    const active = await pool.query("SELECT COUNT(*) as count FROM crypto_signals WHERE status = 'active'");
+    const hitTp = await pool.query("SELECT COUNT(*) as count FROM crypto_signals WHERE hit_tp = true");
+    const hitSl = await pool.query("SELECT COUNT(*) as count FROM crypto_signals WHERE hit_sl = true");
+    const avgPnl = await pool.query("SELECT AVG(pnl_pct) as avg_pnl FROM crypto_signals WHERE pnl_pct IS NOT NULL");
+    const byBias = await pool.query("SELECT bias, COUNT(*) as count, AVG(confidence) as avg_conf FROM crypto_signals GROUP BY bias");
+
+    res.json({
+      status: 'ok',
+      stats: {
+        total: parseInt(total.rows[0].count),
+        active: parseInt(active.rows[0].count),
+        hit_tp: parseInt(hitTp.rows[0].count),
+        hit_sl: parseInt(hitSl.rows[0].count),
+        win_rate: hitTp.rows[0].count > 0
+          ? Math.round(parseInt(hitTp.rows[0].count) / (parseInt(hitTp.rows[0].count) + parseInt(hitSl.rows[0].count)) * 100)
+          : 0,
+        avg_pnl: avgPnl.rows[0].avg_pnl ? Math.round(parseFloat(avgPnl.rows[0].avg_pnl) * 100) / 100 : 0,
+        by_bias: byBias.rows.map(r => ({ bias: r.bias, count: parseInt(r.count), avg_confidence: Math.round(parseFloat(r.avg_conf)) })),
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get screening results
 app.get('/api/crypto/screening', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT symbol, rank, volume_24h FROM crypto_top_coins ORDER BY rank ASC'
+      `SELECT * FROM crypto_screening ORDER BY scan_time DESC LIMIT 50`
     );
-    res.json({ symbols: result.rows, lastScan: new Date() });
+    res.json({ status: 'ok', screenings: result.rows });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.get('/api/crypto/signals', async (req, res) => {
-  try {
-    const { symbol, timeframe, bias, limit = 20 } = req.query;
-    let query = 'SELECT * FROM crypto_signals WHERE status = $1';
-    const params = ['active'];
-
-    if (symbol) {
-      query += ` AND symbol = $${params.length + 1}`;
-      params.push(symbol.toUpperCase());
-    }
-    if (timeframe) {
-      query += ` AND timeframe = $${params.length + 1}`;
-      params.push(timeframe.toUpperCase());
-    }
-    if (bias) {
-      query += ` AND bias = $${params.length + 1}`;
-      params.push(bias.toLowerCase());
-    }
-
-    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1}`;
-    params.push(parseInt(limit));
-
-    const result = await pool.query(query, params);
-    res.json({ signals: result.rows, total: result.rowCount });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
+// Get live price for a symbol
 app.get('/api/crypto/live/:symbol', async (req, res) => {
   try {
-    const symbol = req.params.symbol.toUpperCase();
+    const { symbol } = req.params;
     const result = await pool.query(
-      'SELECT * FROM crypto_candles WHERE symbol=$1 ORDER BY timestamp DESC LIMIT 1',
-      [symbol]
+      `SELECT symbol, timeframe, open, high, low, close, volume, timestamp
+       FROM crypto_candles
+       WHERE symbol = $1
+       ORDER BY timestamp DESC
+       LIMIT 1`,
+      [symbol.toUpperCase()]
     );
+    res.json({ status: 'ok', candle: result.rows[0] || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Symbol not found' });
+// Get candle history for a symbol
+app.get('/api/crypto/history/:symbol', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const timeframe = req.query.timeframe || 'H1';
+    const limit = parseInt(req.query.limit) || 200;
+    const result = await pool.query(
+      `SELECT open as o, high as h, low as l, close as c, volume as v, timestamp as t
+       FROM crypto_candles
+       WHERE symbol = $1 AND timeframe = $2
+       ORDER BY timestamp ASC
+       LIMIT $3`,
+      [symbol.toUpperCase(), timeframe.toUpperCase(), limit]
+    );
+    res.json({ status: 'ok', candles: result.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+console.log('Endpoints: + /api/crypto/signals, /api/crypto/signals/history, /api/crypto/signals/stats, /api/crypto/screening, /api/crypto/live/:symbol, /api/crypto/history/:symbol');
+
+// ═══════════════════════════════════════════════════════════════
+// PERFORMANCE & ADAPTIVE SCORING
+// ═══════════════════════════════════════════════════════════════
+
+// Get latest performance report
+app.get('/api/crypto/performance', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    const result = await pool.query(
+      `SELECT report_data FROM crypto_performance_reports
+       WHERE period_days = $1
+       ORDER BY generated_at DESC LIMIT 1`,
+      [days]
+    );
+    if (result.rows.length > 0) {
+      return res.json({ status: 'ok', report: result.rows[0].report_data });
     }
+    res.json({ status: 'ok', report: null, message: 'No reports yet. Run analytics.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-    const candle = result.rows[0];
+// Get adaptive weights
+app.get('/api/crypto/weights', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT weights, sample_size, generated_at
+       FROM adaptive_weights ORDER BY generated_at DESC LIMIT 1`
+    );
+    if (result.rows.length > 0) {
+      return res.json({
+        status: 'ok',
+        weights: result.rows[0].weights,
+        sample_size: result.rows[0].sample_size,
+        updated_at: result.rows[0].generated_at,
+      });
+    }
+    res.json({ status: 'ok', weights: null, message: 'No weights yet. Run adaptive scoring.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Manual trigger: run outcome tracker
+app.post('/api/crypto/track', async (req, res) => {
+  try {
+    const { trackOutcomes } = require('./outcome-tracker');
+    const result = await trackOutcomes();
+    res.json({ status: 'ok', result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Manual trigger: generate performance report
+app.post('/api/crypto/analytics', async (req, res) => {
+  try {
+    const { generateReport } = require('./performance-analytics');
+    const days = req.body?.days || 30;
+    const report = await generateReport(days);
+    res.json({ status: 'ok', report });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Manual trigger: regenerate adaptive weights
+app.post('/api/crypto/weights/generate', async (req, res) => {
+  try {
+    const { generateWeights } = require('./adaptive-scoring');
+    const weights = await generateWeights();
+    res.json({ status: 'ok', weights });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Performance by symbol breakdown
+app.get('/api/crypto/performance/:symbol', async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const result = await pool.query(`
+      SELECT
+        symbol, bias, confidence, entry_price, stop_loss, take_profit,
+        risk_reward, status, hit_tp, hit_sl, pnl_pct, exit_price,
+        created_at, closed_at
+      FROM crypto_signals
+      WHERE symbol = $1 AND status != 'active'
+      ORDER BY created_at DESC
+      LIMIT 50
+    `, [symbol.toUpperCase()]);
+
+    const stats = await pool.query(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE hit_tp = true) as wins,
+        COUNT(*) FILTER (WHERE hit_sl = true) as losses,
+        AVG(pnl_pct) as avg_pnl,
+        SUM(pnl_pct) as total_pnl
+      FROM crypto_signals
+      WHERE symbol = $1 AND status != 'active'
+    `, [symbol.toUpperCase()]);
+
     res.json({
-      symbol,
-      price: candle.close,
-      lastUpdate: new Date(candle.timestamp * 1000),
+      status: 'ok',
+      symbol: symbol.toUpperCase(),
+      stats: stats.rows[0] ? {
+        total: parseInt(stats.rows[0].total),
+        wins: parseInt(stats.rows[0].wins),
+        losses: parseInt(stats.rows[0].losses),
+        win_rate: parseInt(stats.rows[0].total) > 0
+          ? Math.round(parseInt(stats.rows[0].wins) / parseInt(stats.rows[0].total) * 100) : 0,
+        avg_pnl: stats.rows[0].avg_pnl ? Math.round(parseFloat(stats.rows[0].avg_pnl) * 100) / 100 : 0,
+        total_pnl: stats.rows[0].total_pnl ? Math.round(parseFloat(stats.rows[0].total_pnl) * 100) / 100 : 0,
+      } : null,
+      signals: result.rows,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.get('/api/crypto/history/:symbol', async (req, res) => {
+console.log('Endpoints: + /api/crypto/performance, /api/crypto/weights, /api/crypto/track, /api/crypto/analytics');
+
+// ═══════════════════════════════════════════════════════════════
+// ALERT QUEUE (for Telegram delivery via Hermes)
+// ═══════════════════════════════════════════════════════════════
+
+// Get pending alerts (unsent)
+app.get('/api/crypto/alerts/pending', async (req, res) => {
   try {
-    const symbol = req.params.symbol.toUpperCase();
-    const { limit = 50, offset = 0 } = req.query;
-
+    const limit = parseInt(req.query.limit) || 10;
     const result = await pool.query(
-      'SELECT * FROM crypto_signals WHERE symbol=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
-      [symbol, parseInt(limit), parseInt(offset)]
+      `SELECT id, alert_type, symbol, data, created_at
+       FROM crypto_alert_queue
+       WHERE sent = false
+       ORDER BY created_at ASC
+       LIMIT $1`,
+      [limit]
     );
-
-    res.json({ signals: result.rows, total: result.rowCount });
+    res.json({ status: 'ok', alerts: result.rows, total: result.rows.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// ═══════════════════════════════════════════════════════════════
-console.log('Endpoints: + /api/context/weekly/:symbol, /api/context/daily/:symbol, /api/ai/narrative');
+// Mark alerts as sent
+app.post('/api/crypto/alerts/ack', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
+    await pool.query(
+      `UPDATE crypto_alert_queue SET sent = true WHERE id = ANY($1)`,
+      [ids]
+    );
+    res.json({ status: 'ok', acked: ids.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-// Start crypto engine on server boot
-startCryptoEngine();
+console.log('Endpoints: + /api/crypto/alerts/pending, /api/crypto/alerts/ack');

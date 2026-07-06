@@ -1,131 +1,217 @@
-// vps-api/smc-analysis.js
+// smc-analysis.js — Smart Money Concepts analysis for crypto candles
+// Input: array of { o, h, l, c, v, t } objects (oldest first)
 
-function detectSwings(candles) {
-  const swings = [];
-  for (let i = 2; i < candles.length - 2; i++) {
-    const c = candles[i];
-    const isHigh = 
-      c.high > candles[i - 1].high && c.high > candles[i + 1].high &&
-      c.high > candles[i - 2].high && c.high > candles[i + 2].high;
-    const isLow = 
-      c.low < candles[i - 1].low && c.low < candles[i + 1].low &&
-      c.low < candles[i - 2].low && c.low < candles[i + 2].low;
+function findSwings(candles, lookback = 3) {
+  const swingHighs = [];
+  const swingLows = [];
 
-    if (isHigh) swings.push({ price: c.high, type: 'SH', time: c.timestamp, index: i });
-    if (isLow) swings.push({ price: c.low, type: 'SL', time: c.timestamp, index: i });
-  }
-
-  // Classify HH/HL/LH/LL
-  const classified = [];
-  let lastHigh = -Infinity;
-  let lastLow = Infinity;
-
-  for (const s of swings) {
-    if (s.type === 'SH') {
-      s.type = s.price > lastHigh ? 'HH' : 'LH';
-      lastHigh = s.price;
-      classified.push(s);
-    } else {
-      s.type = s.price > lastLow ? 'HL' : 'LL';
-      lastLow = s.price;
-      classified.push(s);
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    let isHigh = true, isLow = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (candles[i].h <= candles[i - j].h || candles[i].h <= candles[i + j].h) isHigh = false;
+      if (candles[i].l >= candles[i - j].l || candles[i].l >= candles[i + j].l) isLow = false;
     }
+    if (isHigh) swingHighs.push({ index: i, price: candles[i].h, time: candles[i].t });
+    if (isLow) swingLows.push({ index: i, price: candles[i].l, time: candles[i].t });
   }
 
-  return classified;
+  return { swingHighs, swingLows };
 }
 
-function detectFVGs(candles) {
-  const fvgs = [];
-  for (let i = 2; i < candles.length; i++) {
-    if (candles[i].low > candles[i - 2].high) {
-      fvgs.push({
-        type: 'bull',
-        top: candles[i].low,
-        bottom: candles[i - 2].high,
-        time: candles[i - 1].timestamp,
-        gap: candles[i].low - candles[i - 2].high,
-      });
-    }
-    if (candles[i].high < candles[i - 2].low) {
-      fvgs.push({
-        type: 'bear',
-        top: candles[i - 2].low,
-        bottom: candles[i].high,
-        time: candles[i - 1].timestamp,
-        gap: candles[i - 2].low - candles[i].high,
-      });
-    }
-  }
-  return fvgs;
-}
+function detectBOS(candles, swings) { // Break of Structure
+  const { swingHighs, swingLows } = swings;
+  const signals = [];
 
-function detectOBs(candles) {
-  const obs = [];
-  for (let i = 2; i < candles.length; i++) {
-    const prev = candles[i - 1];
-    const curr = candles[i];
-    const body = Math.abs(prev.close - prev.open);
-    const move = curr.high - curr.low;
-
-    if (move > body * 2 && body > 0) {
-      if (prev.close < prev.open) {
-        obs.push({ type: 'bull_ob', high: prev.open, low: prev.low, time: prev.timestamp });
-      } else {
-        obs.push({ type: 'bear_ob', high: prev.high, low: prev.close, time: prev.timestamp });
+  // Bullish BOS: price breaks above previous swing high
+  for (const sh of swingHighs) {
+    const futureCandles = candles.slice(sh.index + 1);
+    for (const fc of futureCandles) {
+      if (fc.c > sh.price) {
+        signals.push({ type: 'bullish_bos', level: sh.price, time: fc.t });
+        break;
       }
     }
   }
-  return obs;
-}
 
-function detectBOS(swings) {
-  if (swings.length < 2) return { bos: false, choch: false };
-  
-  const lastTwo = swings.slice(-2);
-  const prevTwo = swings.slice(-4, -2);
-  
-  if (prevTwo.length < 2) return { bos: false, choch: false };
-  
-  // Bullish BOS: price breaks above previous swing high
-  const bullishBOS = lastTwo[1].type === 'HH' && lastTwo[0].type === 'HL';
-  
   // Bearish BOS: price breaks below previous swing low
-  const bearishBOS = lastTwo[1].type === 'LL' && lastTwo[0].type === 'LH';
-  
-  // CHoCH: first break against prevailing trend
-  const prevTrend = prevTwo[1].type === 'HH' || prevTwo[1].type === 'HL' ? 'bullish' : 'bearish';
-  const currentTrend = lastTwo[1].type === 'HH' || lastTwo[1].type === 'HL' ? 'bullish' : 'bearish';
-  const choch = prevTrend !== currentTrend;
-  
-  return { bos: bullishBOS || bearishBOS, choch };
+  for (const sl of swingLows) {
+    const futureCandles = candles.slice(sl.index + 1);
+    for (const fc of futureCandles) {
+      if (fc.c < sl.price) {
+        signals.push({ type: 'bearish_bos', level: sl.price, time: fc.t });
+        break;
+      }
+    }
+  }
+
+  return signals.slice(-5); // Last 5 BOS signals
 }
 
-function getTrend(swings) {
-  const recent = swings.slice(-8);
-  const hh = recent.filter(s => s.type === 'HH').length;
-  const hl = recent.filter(s => s.type === 'HL').length;
-  const lh = recent.filter(s => s.type === 'LH').length;
-  const ll = recent.filter(s => s.type === 'LL').length;
+function detectCHoCH(candles, swings) { // Change of Character
+  const { swingHighs, swingLows } = swings;
+  const signals = [];
 
-  if (hh + hl > lh + ll) return 'bullish';
-  if (lh + ll > hh + hl) return 'bearish';
-  return 'neutral';
+  if (swingLows.length < 2 || swingHighs.length < 2) return signals;
+
+  // Bullish CHoCH: higher high after series of lower lows
+  const recentLows = swingLows.slice(-3);
+  if (recentLows.length >= 2) {
+    const lastLow = recentLows[recentLows.length - 1];
+    const prevLow = recentLows[recentLows.length - 2];
+    // Check if we were making lower lows before
+    for (let i = recentLows.length - 2; i >= 1; i--) {
+      if (recentLows[i].price < recentLows[i - 1].price) {
+        // Was in downtrend, now check for bullish CHoCH
+        const lastHigh = swingHighs[swingHighs.length - 1];
+        const prevHigh = swingHighs.length >= 2 ? swingHighs[swingHighs.length - 2] : null;
+        if (prevHigh && lastHigh.price > prevHigh.price) {
+          signals.push({ type: 'bullish_choch', level: prevHigh.price, time: lastHigh.time });
+        }
+        break;
+      }
+    }
+  }
+
+  // Bearish CHoCH: lower low after series of higher lows
+  const recentHighs = swingHighs.slice(-3);
+  if (recentHighs.length >= 2) {
+    for (let i = recentHighs.length - 2; i >= 1; i--) {
+      if (recentHighs[i].price > recentHighs[i - 1].price) {
+        const lastLow = swingLows[swingLows.length - 1];
+        const prevLow = swingLows.length >= 2 ? swingLows[swingLows.length - 2] : null;
+        if (prevLow && lastLow.price < prevLow.price) {
+          signals.push({ type: 'bearish_choch', level: prevLow.price, time: lastLow.time });
+        }
+        break;
+      }
+    }
+  }
+
+  return signals.slice(-3);
 }
 
-function getZone(price, high, low) {
-  const mid = (high + low) / 2;
-  const range = high - low;
-  if (price > mid + range * 0.1) return 'premium';
-  if (price < mid - range * 0.1) return 'discount';
-  return 'equilibrium';
+function findFVGs(candles) { // Fair Value Gaps
+  const fvgs = [];
+  for (let i = 2; i < candles.length; i++) {
+    // Bullish FVG: gap between candle[0].high and candle[2].low
+    if (candles[i - 2].h < candles[i].l) {
+      fvgs.push({
+        type: 'bullish_fvg',
+        top: candles[i].l,
+        bottom: candles[i - 2].h,
+        time: candles[i - 1].t,
+        filled: false,
+      });
+    }
+    // Bearish FVG: gap between candle[2].high and candle[0].low
+    if (candles[i - 2].l > candles[i].h) {
+      fvgs.push({
+        type: 'bearish_fvg',
+        top: candles[i - 2].l,
+        bottom: candles[i].h,
+        time: candles[i - 1].t,
+        filled: false,
+      });
+    }
+  }
+
+  // Check which FVGs are filled
+  const price = candles[candles.length - 1]?.c;
+  for (const fvg of fvgs) {
+    if (fvg.type === 'bullish_fvg' && price <= fvg.bottom) fvg.filled = true;
+    if (fvg.type === 'bearish_fvg' && price >= fvg.top) fvg.filled = true;
+  }
+
+  return fvgs.filter(f => !f.filled).slice(-5); // Last 5 unfilled FVGs
+}
+
+function findOrderBlocks(candles, swings) {
+  const { swingHighs, swingLows } = swings;
+  const obs = [];
+
+  // Bullish OB: last bearish candle before bullish impulse (swing low)
+  for (const sl of swingLows.slice(-5)) {
+    for (let i = sl.index - 1; i >= Math.max(0, sl.index - 5); i--) {
+      if (candles[i].c < candles[i].o) { // Bearish candle
+        obs.push({
+          type: 'bullish_ob',
+          high: candles[i].h,
+          low: candles[i].l,
+          time: candles[i].t,
+          mitigation: false,
+        });
+        break;
+      }
+    }
+  }
+
+  // Bearish OB: last bullish candle before bearish impulse (swing high)
+  for (const sh of swingHighs.slice(-5)) {
+    for (let i = sh.index - 1; i >= Math.max(0, sh.index - 5); i--) {
+      if (candles[i].c > candles[i].o) { // Bullish candle
+        obs.push({
+          type: 'bearish_ob',
+          high: candles[i].h,
+          low: candles[i].l,
+          time: candles[i].t,
+          mitigation: false,
+        });
+        break;
+      }
+    }
+  }
+
+  // Check mitigation
+  const price = candles[candles.length - 1]?.c;
+  for (const ob of obs) {
+    if (ob.type === 'bullish_ob' && price < ob.low) ob.mitigation = true;
+    if (ob.type === 'bearish_ob' && price > ob.high) ob.mitigation = true;
+  }
+
+  return obs.filter(o => !o.mitigation).slice(-5);
+}
+
+function getSMCAnalysis(candles) {
+  const swings = findSwings(candles, 3);
+  const bos = detectBOS(candles, swings);
+  const choch = detectCHoCH(candles, swings);
+  const fvgs = findFVGs(candles);
+  const orderBlocks = findOrderBlocks(candles, swings);
+
+  // Determine structure bias
+  let structureBias = 'neutral';
+  const lastBOS = bos[bos.length - 1];
+  const lastCHoCH = choch[choch.length - 1];
+
+  if (lastCHoCH) {
+    structureBias = lastCHoCH.type === 'bullish_choch' ? 'bullish' : 'bearish';
+  } else if (lastBOS) {
+    structureBias = lastBOS.type === 'bullish_bos' ? 'bullish' : 'bearish';
+  }
+
+  // Liquidity zones (from swing points)
+  const liquidityZones = [];
+  for (const sh of swings.swingHighs.slice(-3)) {
+    liquidityZones.push({ type: 'buy_side', price: sh.price, time: sh.time });
+  }
+  for (const sl of swings.swingLows.slice(-3)) {
+    liquidityZones.push({ type: 'sell_side', price: sl.price, time: sl.time });
+  }
+
+  return {
+    bias: structureBias,
+    swings: {
+      highs: swings.swingHighs.slice(-5).map(s => ({ price: s.price, time: s.time })),
+      lows: swings.swingLows.slice(-5).map(s => ({ price: s.price, time: s.time })),
+    },
+    bos: bos.slice(-3),
+    choch: choch.slice(-2),
+    fvgs,
+    orderBlocks,
+    liquidityZones,
+  };
 }
 
 module.exports = {
-  detectSwings,
-  detectFVGs,
-  detectOBs,
-  detectBOS,
-  getTrend,
-  getZone,
+  findSwings, detectBOS, detectCHoCH, findFVGs, findOrderBlocks, getSMCAnalysis
 };
