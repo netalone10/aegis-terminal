@@ -19,6 +19,7 @@ import Fundamental from './modules/analysis/Fundamental'
 import MacroDashboard from './modules/macro/MacroDashboard'
 import Market from './modules/market/Market'
 import Portfolio from './modules/portfolio/Portfolio'
+import VpsDashboard from './pages/VpsDashboard'
 import { CryptoScreener } from './pages/CryptoScreener'
 import { CryptoSignals } from './pages/CryptoSignals'
 import { CryptoDetail } from './pages/CryptoDetail'
@@ -61,6 +62,7 @@ function AppShell() {
             <Route path="/macro" element={<MacroDashboard />} />
             <Route path="/market" element={<Market />} />
             <Route path="/portfolio" element={<Portfolio />} />
+            <Route path="/vps" element={<VpsDashboard />} />
             <Route path="/crypto" element={<CryptoScreener />} />
             <Route path="/crypto/signals" element={<CryptoSignals />} />
             <Route path="/crypto/:symbol" element={<CryptoDetail />} />
