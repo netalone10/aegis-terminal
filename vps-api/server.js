@@ -2301,6 +2301,106 @@ app.get("/api/xau/deep-analysis", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// XAU SIGNALS
+// ═══════════════════════════════════════════════════════════════
+
+// 1. List signals (optional status filter)
+app.get('/api/xau/signals', async (req, res) => {
+  try {
+    const status = req.query.status;
+    let query = 'SELECT * FROM xau_signals';
+    const params = [];
+    if (status) {
+      params.push(status);
+      query += ` WHERE status = $1`;
+    }
+    query += ' ORDER BY created_at DESC';
+    const result = await pool.query(query, params);
+    res.json({ status: 'ok', data: result.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 2. Latest signal with full data
+app.get('/api/xau/signals/latest', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM xau_signals ORDER BY created_at DESC LIMIT 1'
+    );
+    res.json({ status: 'ok', data: result.rows[0] || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 3. Signal history (with limit)
+app.get('/api/xau/signals/history', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const result = await pool.query(
+      'SELECT * FROM xau_signals ORDER BY created_at DESC LIMIT $1',
+      [limit]
+    );
+    res.json({ status: 'ok', data: result.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 4. Aggregate stats
+app.get('/api/xau/signals/stats', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE status = 'active') AS active,
+        COUNT(*) FILTER (WHERE status = 'win') AS wins,
+        COUNT(*) FILTER (WHERE status = 'loss') AS losses,
+        CASE WHEN COUNT(*) FILTER (WHERE status IN ('win','loss')) > 0
+          THEN ROUND(COUNT(*) FILTER (WHERE status = 'win')::numeric /
+                     COUNT(*) FILTER (WHERE status IN ('win','loss')) * 100, 1)
+          ELSE 0
+        END AS win_rate
+      FROM xau_signals
+    `);
+    res.json({ status: 'ok', data: result.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 5. Latest analysis log
+app.get('/api/xau/analysis/latest', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM xau_analysis_log ORDER BY created_at DESC LIMIT 1'
+    );
+    res.json({ status: 'ok', data: result.rows[0] || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 6. Trigger manual analysis (runs runner.py)
+app.post('/api/xau/analyze', async (req, res) => {
+  try {
+    const { execFile } = require('child_process');
+    const path = require('path');
+    const runnerPath = path.resolve(__dirname, '../runner.py');
+    execFile('python3', [runnerPath], { timeout: 120000 }, (err, stdout, stderr) => {
+      if (err) {
+        console.error('[XAU] runner.py error:', err.message);
+        return res.status(500).json({ status: 'error', error: err.message, stderr });
+      }
+      res.json({ status: 'ok', data: { stdout, stderr } });
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // CRYPTO SIGNALS
 // ═══════════════════════════════════════════════════════════════
 

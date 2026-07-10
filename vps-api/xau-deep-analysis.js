@@ -344,15 +344,13 @@ async function analyzeXAUUSD(timeframe = 'D1') {
   }
 
 
-  // Fetch live price from MT5 Feed API
+  // Live price from MT5 poller cache (localhost:8500, updated every 2s)
   let livePrice = d1Candles[d1Candles.length - 1].c;
   try {
-    const resp = await fetch("https://mt5-feed.aegisterminal.app/price?symbol=XAUUSD", {
-      headers: { "X-API-Key": "ThLNeGzMMCRcPsLSicfq9OCHkfIiJdrcVJaN0d8d9Mo" }
-    });
-    const priceData = await resp.json();
-    if (priceData.bid) livePrice = parseFloat(priceData.bid);
-  } catch (e) { console.log("[XAU] MT5 price fetch failed, using D1 close"); }
+    const mt5Poller = require('./mt5-price-poller');
+    const cached = mt5Poller.getPrice('XAUUSD');
+    if (cached && cached.bid) livePrice = cached.bid;
+  } catch (e) { console.log("[XAU] Poller cache miss, using D1 close"); }
 
   const currentPrice = livePrice;
 

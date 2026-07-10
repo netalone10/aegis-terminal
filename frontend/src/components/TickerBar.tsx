@@ -1,25 +1,20 @@
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../lib/api'
+import { useLivePrices } from '../lib/useLivePrices'
 
 export default function TickerBar() {
-  const { data: tickerData } = useQuery({
-    queryKey: ['forex-ticker'],
-    queryFn: () => api<any>('/api/forex/ticker'),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-    retry: false,
-  })
+  const { prices } = useLivePrices()
 
-  const tickerItems = (tickerData?.data ?? []).map((t: any) => ({
-    symbol: t.symbol,
-    price: typeof t.price === 'number'
-      ? (t.symbol.includes('JPY') || t.symbol.includes('IDR') ? t.price.toFixed(2) : t.price.toFixed(4))
-      : String(t.price ?? '—'),
-    change: typeof t.change === 'number'
-      ? `${t.change >= 0 ? '+' : ''}${t.change.toFixed(2)}%`
-      : String(t.change ?? '0%'),
-    up: typeof t.change === 'number' ? t.change >= 0 : true,
-  }))
+  const tickerItems = Object.values(prices).map((t) => {
+    const isJpy = t.symbol.includes('JPY') || t.symbol.includes('IDR')
+    const isXau = t.symbol.includes('XAU')
+    const decimals = isXau ? 2 : isJpy ? 2 : 4
+    const spreadPips = t.ask - t.bid
+    return {
+      symbol: t.symbol,
+      price: t.bid.toFixed(decimals),
+      change: spreadPips > 0 ? `${spreadPips.toFixed(decimals)}` : '—',
+      up: t.bid >= t.ask - t.spread,
+    }
+  })
 
   if (tickerItems.length === 0) return null
 

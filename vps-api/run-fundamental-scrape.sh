@@ -1,4 +1,3 @@
 #!/bin/bash
 cd /home/ubuntu/projects/aegis-terminal/vps-api
-export FIRECRAWL_API_KEY=fc-3673cb1426994104a857455bd3b61a7c
-node scrape-economic.js 2>&1 | tee -a /tmp/fundamental-scrape.log
+node scrape-calendar.js 2>&1 | tee -a /tmp/calendar-scrape.log

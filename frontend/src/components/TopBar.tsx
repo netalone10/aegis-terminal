@@ -1,9 +1,8 @@
 import { NavLink } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
-import { api } from '../lib/api'
 import { ChevronDown, ChevronRight, Menu, X, Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase, Zap, BarChart3, Bitcoin } from 'lucide-react'
 import { useState } from 'react'
+import { useLivePrices } from '../lib/useLivePrices'
 
 type NavItem = { to: string; label: string; icon: LucideIcon }
 type NavGroup = { label: string; items: NavItem[] }
@@ -67,26 +66,22 @@ export default function TopBar() {
     CORE: true, ANALYSIS: true, DATA: true, JOURNAL: true,
   })
 
-  const { data: tickerData } = useQuery<any>({
-    queryKey: ['forex-ticker'],
-    queryFn: () => api('/api/forex/ticker'),
-    staleTime: 300_000,
-    refetchInterval: 60_000,
-    retry: false,
-  })
+  const { prices, isConnected } = useLivePrices()
 
-  const raw = Array.isArray(tickerData) ? tickerData : (tickerData?.data ?? [])
+  const raw = Object.values(prices)
   const tickerItems = raw.length > 0
-    ? raw.slice(0, 8).map((t: any) => ({
-        symbol: t.symbol,
-        price: typeof t.price === 'number'
-          ? (t.symbol.includes('JPY') || t.symbol.includes('IDR') ? t.price.toFixed(2) : t.price.toFixed(4))
-          : String(t.price ?? '—'),
-        change: typeof t.change === 'number'
-          ? `${t.change >= 0 ? '+' : ''}${t.change.toFixed(2)}%`
-          : String(t.change ?? '0%'),
-        up: typeof t.change === 'number' ? t.change >= 0 : true,
-      }))
+    ? raw.slice(0, 8).map((t) => {
+        const isJpy = t.symbol.includes('JPY') || t.symbol.includes('IDR')
+        const isXau = t.symbol.includes('XAU')
+        const decimals = isXau ? 2 : isJpy ? 2 : 4
+        const spreadPips = t.ask - t.bid
+        return {
+          symbol: t.symbol,
+          price: t.bid.toFixed(decimals),
+          change: spreadPips > 0 ? `${spreadPips.toFixed(decimals)}` : '—',
+          up: t.bid >= t.ask - t.spread,
+        }
+      })
     : []
 
   const doubled = [...tickerItems, ...tickerItems]
@@ -116,7 +111,9 @@ export default function TopBar() {
           </NavLink>
         </div>
         <div className="kt-top-actions">
-          <span className="kt-pill kt-pill-gold">Connected</span>
+          <span className={`kt-pill ${isConnected ? 'kt-pill-gold' : 'kt-pill-warning'}`}>
+            {isConnected ? 'Connected' : 'Reconnecting…'}
+          </span>
         </div>
       </header>
 

@@ -44,7 +44,7 @@ interface NarrativeResult {
 }
 
 /* ── constants ─────────────────────────────────────────────────────── */
-const SYMBOLS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD']
+import { SYMBOLS } from '../../lib/config'
 
 const BIAS_COLORS: Record<string, string> = {
   BULLISH: '#22c55e',
@@ -119,6 +119,13 @@ function surpriseColor(pct: number | null): string {
   if (pct === null) return '#64748b'
   if (Math.abs(pct) < 1) return '#64748b'
   return pct > 0 ? '#22c55e' : '#ef4444'
+}
+
+function utcToWib(utcTime: string | null): string {
+  if (!utcTime) return '—'
+  const [h, m] = utcTime.split(':').map(Number)
+  const wibH = (h + 7) % 24
+  return String(wibH).padStart(2, '0') + ':' + String(m ?? 0).padStart(2, '0')
 }
 
 /* ── styles ────────────────────────────────────────────────────────── */
@@ -581,57 +588,157 @@ export default function WeeklyOutlook() {
               )}
             </div>
 
-            {/* Economic Events */}
-            {context.economicEvents?.length > 0 && (
-              <div style={{ ...S.card, marginBottom: 20 }}>
-                <div style={S.sectionTitle}>
-                  <Calendar size={16} color="#f59e0b" />
-                  Economic Events — This Week & Next Week
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={S.table}>
-                    <thead>
-                      <tr>
-                        <th style={S.th}>Event</th>
-                        <th style={S.th}>Day</th>
-                        <th style={S.th}>Time</th>
-                        <th style={S.th}>Impact</th>
-                        <th style={S.th}>Currency</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {context.economicEvents.map((ev: any, i: number) => {
-                        const ib = TIER_BADGE[ev.tier] ?? TIER_BADGE['C']
-                        const isPassed = ev.week === 'passed'
-                        return (
-                          <tr key={i} style={isPassed ? { opacity: 0.4 } : undefined}>
-                            <td style={S.td}>
-                              {ev.name}
-                              {isPassed && <span style={{ marginLeft: 6, fontSize: 9, color: '#64748b' }}>✓</span>}
-                            </td>
-                            <td style={{ ...S.td, fontSize: 10 }}>
-                              <div>{ev.day?.toUpperCase()}</div>
-                              <div style={{ color: '#64748b', fontFamily: 'var(--font-mono)' }}>{ev.thisWeekDate?.slice(5) ?? ''}</div>
-                              <div style={{ color: '#475569', fontSize: 9 }}>→{ev.nextWeekDate?.slice(5) ?? ''}</div>
-                            </td>
-                            <td style={S.td}>{ev.time ?? '—'}</td>
-                            <td style={S.td}>
-                              <span style={{ ...S.badge(ib.bg, ib.text), fontSize: 10, fontFamily: 'var(--font-mono)' }}>{ib.label}</span>
-                            </td>
-                            <td style={S.td}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(148,163,184,.08)', color: '#94a3b8' }}>{ev.country}</span>
-                                <span style={{ fontSize: 10, color: '#64748b' }}>{ev.chain}</span>
+            {/* Economic Events — Grouped by Day */}
+            {(() => {
+              const dayMap: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5 }
+              const now = new Date()
+              const todayDow = now.getUTCDay()
+              const events = (context.economicEvents ?? [])
+              const mapped = events.map((ev: any) => {
+                const dow = dayMap[ev.day?.toLowerCase()] ?? 1
+                const isToday = dow === todayDow
+                const isUpcoming = dow > todayDow
+                const dayDiff = dow - todayDow
+                return {
+                  ...ev,
+                  dayLabel: isToday ? 'Today' : isUpcoming ? `In ${dayDiff}d` : 'Passed',
+                }
+              })
+
+              const active = mapped.filter((e: any) => e.dayLabel !== 'Passed')
+              if (active.length === 0) return null
+
+              // Group by dayLabel
+              const groups: Record<string, any[]> = {}
+              for (const ev of active) {
+                const key = ev.dayLabel ?? 'Other'
+                if (!groups[key]) groups[key] = []
+                groups[key].push(ev)
+              }
+
+              // Sort groups: Today first, then by day number
+              const dayOrder = (label: string) => {
+                if (label === 'Today') return 0
+                const m = label.match(/In (\d+)d/)
+                return m ? parseInt(m[1]) : 99
+              }
+              const sortedGroups = Object.entries(groups).sort(
+                ([a], [b]) => dayOrder(a) - dayOrder(b)
+              )
+
+              // Sort events within each group by time
+              for (const [, evs] of sortedGroups) {
+                evs.sort((a: any, b: any) => (a.time ?? '').localeCompare(b.time ?? ''))
+              }
+
+              return (
+                <div style={{ ...S.card, marginBottom: 20 }}>
+                  <div style={S.sectionTitle}>
+                    <Calendar size={16} color="#f59e0b" />
+                    Economic Events
+                  </div>
+                  {sortedGroups.map(([dayLabel, evs]) => {
+                    const isToday = dayLabel === 'Today'
+                    return (
+                      <div key={dayLabel} style={{
+                        marginBottom: 16,
+                        border: isToday ? '1px solid rgba(245,158,11,.3)' : '1px solid rgba(30,30,46,.6)',
+                        borderRadius: 8,
+                        overflow: 'hidden',
+                        background: isToday ? 'rgba(245,158,11,.04)' : 'transparent',
+                      }}>
+                        {/* Day Header */}
+                        <div style={{
+                          padding: '8px 14px',
+                          borderBottom: isToday ? '1px solid rgba(245,158,11,.2)' : '1px solid rgba(30,30,46,.6)',
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          background: isToday ? 'rgba(245,158,11,.08)' : 'rgba(255,255,255,.02)',
+                        }}>
+                          {isToday && <span style={{
+                            width: 6, height: 6, borderRadius: '50%',
+                            background: '#f59e0b', boxShadow: '0 0 6px rgba(245,158,11,.5)',
+                          }} />}
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, letterSpacing: '0.05em',
+                            color: isToday ? '#f59e0b' : '#94a3b8',
+                          }}>
+                            {isToday ? 'TODAY' : dayLabel.toUpperCase()}
+                          </span>
+                          <span style={{ fontSize: 10, color: '#64748b' }}>
+                            {evs.length} event{evs.length > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        {/* Event Rows */}
+                        {evs.map((ev: any, i: number) => {
+                          const ib = TIER_BADGE[ev.tier] ?? TIER_BADGE['C']
+                          const isHigh = ev.tier === 'S+' || ev.tier === 'S'
+                          return (
+                            <div key={i} style={{
+                              display: 'flex', alignItems: 'center', gap: 12,
+                              padding: '8px 14px',
+                              borderBottom: i < evs.length - 1 ? '1px solid rgba(30,30,46,.4)' : 'none',
+                              background: isHigh ? 'rgba(239,68,68,.04)' : 'transparent',
+                            }}>
+                              {/* Time */}
+                              <span style={{
+                                fontSize: 12, fontFamily: 'var(--font-mono)', color: '#94a3b8',
+                                minWidth: 56, textAlign: 'right',
+                              }}>
+                                {utcToWib(ev.time)}
                               </span>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                              {/* Tier Badge */}
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                                background: ib.bg, color: ib.text,
+                                minWidth: 60, textAlign: 'center', letterSpacing: '0.03em',
+                              }}>
+                                {ib.label}
+                              </span>
+                              {/* Name */}
+                              <span style={{
+                                flex: 1, fontSize: 13, color: isHigh ? '#e2e8f0' : '#cbd5e1',
+                                fontWeight: isHigh ? 600 : 400,
+                              }}>
+                                {ev.name}
+                              </span>
+                              {/* Forecast / Previous */}
+                              {(ev.forecast != null || ev.previous != null) && (
+                                <span style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                                  flexShrink: 0, fontSize: 11,
+                                }}>
+                                  {ev.forecast != null && (
+                                    <span style={{ color: '#f59e0b', fontFamily: 'var(--font-mono)' }}>
+                                      F: {ev.forecast}
+                                    </span>
+                                  )}
+                                  {ev.previous != null && (
+                                    <span style={{ color: '#64748b', fontFamily: 'var(--font-mono)' }}>
+                                      P: {ev.previous}
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                              {/* Country + Chain */}
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                flexShrink: 0,
+                              }}>
+                                <span style={{
+                                  fontSize: 10, padding: '1px 5px', borderRadius: 3,
+                                  background: 'rgba(148,163,184,.08)', color: '#94a3b8',
+                                }}>{ev.country}</span>
+                                <span style={{ fontSize: 10, color: '#475569' }}>{ev.chain}</span>
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Recent Releases */}
             {context.recentReleases?.length > 0 && (
@@ -644,6 +751,7 @@ export default function WeeklyOutlook() {
                   <table style={S.table}>
                     <thead>
                       <tr>
+                        <th style={S.th}>Date</th>
                         <th style={S.th}>Event</th>
                         <th style={S.th}>Forecast</th>
                         <th style={S.th}>Actual</th>
@@ -652,13 +760,16 @@ export default function WeeklyOutlook() {
                     </thead>
                     <tbody>
                       {context.recentReleases.map((rel: any, i: number) => {
-                        const pct = surprisePercent(String(rel.forecast ?? ''), String(rel.actual ?? ''))
+                        const pct = surprisePercent(String(rel.consensus ?? rel.forecast ?? ''), String(rel.actual ?? ''))
+                        const releaseDate = rel.date ? new Date(rel.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '—'
+                        const isBig = Math.abs(pct ?? 0) >= 5
                         return (
-                          <tr key={i}>
-                            <td style={S.td}>{rel.name}</td>
+                          <tr key={i} style={isBig ? { background: 'rgba(245,158,11,.04)' } : undefined}>
+                            <td style={{ ...S.td, fontSize: 11, color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>{releaseDate}</td>
+                            <td style={{ ...S.td, fontWeight: 600 }}>{rel.event}</td>
                             <td style={S.td}>{rel.consensus ?? rel.forecast ?? '—'}</td>
-                            <td style={S.td}>{rel.actual ?? '—'}</td>
-                            <td style={{ ...S.td, color: surpriseColor(pct), fontWeight: 600 }}>
+                            <td style={{ ...S.td, fontWeight: 600 }}>{rel.actual ?? '—'}</td>
+                            <td style={{ ...S.td, color: surpriseColor(pct), fontWeight: 700 }}>
                               {pct !== null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'}
                             </td>
                           </tr>

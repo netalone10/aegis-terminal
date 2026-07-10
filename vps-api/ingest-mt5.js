@@ -3,7 +3,7 @@
 
 const { Pool } = require('pg');
 
-const MT5_URL = 'https://mt5-feed.aegisterminal.app';
+const MT5_URL = 'http://localhost:8500'; // Local MT5 API (same VPS)
 const MT5_KEY = 'ThLNeGzMMCRcPsLSicfq9OCHkfIiJdrcVJaN0d8d9Mo';
 
 const pool = new Pool({

@@ -1,6 +1,5 @@
 import { NavLink } from 'react-router-dom'
 import { Zap, Shield, ChevronRight, BarChart3, Calendar, Crosshair, Globe, Search, Briefcase, ScrollText } from 'lucide-react'
-import TickerBar from '../../components/TickerBar'
 
 const features = [
   { code: 'RPT', title: 'Session Reports', desc: 'Analisis sesi Asia, London, dan New York. Data aktual dari SMC engine, bukan opini semata.', icon: ScrollText },
@@ -35,7 +34,6 @@ const reports = [
 export default function Landing() {
   return (
     <div>
-      <TickerBar />
 
       {/* Hero */}
       <section className="kt-hero">

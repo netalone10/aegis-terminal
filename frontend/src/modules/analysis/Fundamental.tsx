@@ -110,7 +110,7 @@ const BIAS_COLORS: Record<string, { bg: string; text: string; border: string }> 
   neutral: { bg: 'rgba(148,163,184,.06)', text: '#94a3b8', border: 'rgba(148,163,184,.12)' },
 }
 
-const NARRATIVE_SYMBOLS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD']
+import { SYMBOLS as NARRATIVE_SYMBOLS } from '../../lib/config'
 
 const CARD_STYLE: React.CSSProperties = {
   background: '#12121a',

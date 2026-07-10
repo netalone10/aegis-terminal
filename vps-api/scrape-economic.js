@@ -16,7 +16,40 @@ const pool = new Pool({
 
 // ─── Event Name Mapping ────────────────────────────────────────
 const EVENT_MAP = {
+  // US
   'Nonfarm Payrolls': 'Non-Farm Payrolls',
+  'Non-Farm Employment Change': 'Non-Farm Payrolls',
+  'ISM Manufacturing PMI': 'ISM Manufacturing PMI',
+  'ISM Services PMI': 'ISM Services PMI',
+  'ISM Non-Manufacturing PMI': 'ISM Services PMI',
+  'FOMC Interest Rate Decision': 'FOMC Rate Decision',
+  'Federal Funds Rate': 'FOMC Rate Decision',
+  'Core CPI (MoM)': 'Core CPI (MoM)',
+  'Core CPI (YoY)': 'Core CPI (YoY)',
+  'CPI (MoM)': 'CPI (MoM)',
+  'CPI (YoY)': 'CPI (YoY)',
+  'Core PCE Price Index (MoM)': 'Core PCE Price Index',
+  'Core PCE Price Index': 'Core PCE Price Index',
+  'Initial Jobless Claims': 'Initial Jobless Claims',
+  'Unemployment Rate': 'Unemployment Rate',
+  'Average Hourly Earnings (MoM)': 'Average Hourly Earnings',
+  'Average Hourly Earnings (YoY)': 'Average Hourly Earnings YoY',
+  'Retail Sales (MoM)': 'Retail Sales (MoM)',
+  'Advance GDP (QoQ)': 'GDP (Advance)',
+  'GDP (Advance)': 'GDP (Advance)',
+  'PPI (MoM)': 'PPI (MoM)',
+  'PPI (YoY)': 'PPI (YoY)',
+  // Central Banks
+  'ECB Interest Rate Decision': 'ECB Rate Decision',
+  'Main Refinancing Rate': 'ECB Rate Decision',
+  'BOE Interest Rate Decision': 'BOE Rate Decision',
+  'BOJ Interest Rate Decision': 'BOJ Rate Decision',
+  // EU
+  'German ZEW Economic Sentiment': 'German ZEW Economic Sentiment',
+  // UK
+  'UK CPI (YoY)': 'UK CPI (YoY)',
+  // CN
+  'Caixin Manufacturing PMI': 'China Caixin PMI Manufacturing',
   'Unemployment Rate': 'Unemployment Rate',
   'Average Hourly Earnings (MoM)': 'Average Hourly Earnings',
   'Average Hourly Earnings (YoY)': 'Average Hourly Earnings YoY',
@@ -117,45 +150,60 @@ function parseEvents(markdown) {
 
   for (const line of markdown.split('\n')) {
     const trimmed = line.trim();
-    
-    // Date header
-    const dm = trimmed.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+(\w+)\s+(\d+)/);
+
+    // Date header: "| Sunday, July 5, 2026 |" or "Sunday, July 5, 2026"
+    const dm = trimmed.match(/(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+(\w+)\s+(\d{1,2}),?\s*(\d{4})?/);
     if (dm) {
       const month = monthMap[dm[2]] || '01';
       const day = dm[3].padStart(2, '0');
-      const year = new Date().getUTCFullYear();
+      const year = dm[4] || new Date().getUTCFullYear();
       currentDate = `${year}-${month}-${day}`;
       continue;
     }
-    if (!trimmed.startsWith('|') || !currentDate) continue;
+    if (!currentDate) continue;
 
-    // Event name from link
-    const eventMatch = trimmed.match(/\[([^\]]+)\]/);
+    // Only process rows that have Act: data (actual calendar events, not sidebar)
+    if (!trimmed.includes('Act:')) continue;
+
+    // Event name from markdown link [Event Name](url)
+    const eventMatch = trimmed.match(/\[([^\]]+)\]\(/);
     if (!eventMatch) continue;
     let rawName = eventMatch[1];
-    // Clean month/year suffix
-    rawName = rawName.replace(/\s*\((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{4}\)\s*$/, '').trim();
-    rawName = rawName.replace(/\s*\(\w+\)\s*$/, '').trim();
+    // Clean month/year suffix like "(Jun)" or "(Jul 2026)"
+    rawName = rawName.replace(/\s*\((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{0,4}\)\s*$/, '').trim();
 
     const mappedName = EVENT_MAP[rawName];
     if (!mappedName) continue;
 
-    // Find number cells after event cell
-    const cells = trimmed.split('|');
-    const numberVals = [];
-    let foundEvent = false;
-    for (const c of cells) {
-      const cs = c.trim();
-      if (cs.includes('[')) { foundEvent = true; continue; }
-      if (!foundEvent || cs === '') continue;
-      if (/^[-\d.,]+[%KMBTk]?$/.test(cs)) {
-        numberVals.push(parseNumber(cs));
-      }
-    }
+    // Parse embedded data: "Act:<br>52.0<br>Cons:<br>-<br>Prev.:<br>50.4"
+    let actual = null, forecast = null, previous = null;
 
-    const actual = numberVals[0] ?? null;
-    const forecast = numberVals[1] ?? null;
-    const previous = numberVals[2] ?? null;
+    // Try embedded format first (Investing.com via Firecrawl)
+    const actMatch = trimmed.match(/Act:<br>-?([\d.,]+[%KMBTk]?)/i);
+    const consMatch = trimmed.match(/Cons:<br>-?([\d.,]+[%KMBTk]?)/i);
+    const prevMatch = trimmed.match(/Prev\.:?<br>-?([\d.,]+[%KMBTk]?)/i);
+
+    if (actMatch) actual = parseNumber(actMatch[1]);
+    if (consMatch && consMatch[1] !== '-') forecast = parseNumber(consMatch[1]);
+    if (prevMatch) previous = parseNumber(prevMatch[1]);
+
+    // Fallback: table cells after event
+    if (actual === null && forecast === null) {
+      const cells = trimmed.split('|');
+      const numberVals = [];
+      let foundEvent = false;
+      for (const c of cells) {
+        const cs = c.trim();
+        if (cs.includes('[')) { foundEvent = true; continue; }
+        if (!foundEvent || cs === '') continue;
+        if (/^[-\d.,]+[%KMBTk]?$/.test(cs)) {
+          numberVals.push(parseNumber(cs));
+        }
+      }
+      actual = numberVals[0] ?? null;
+      forecast = numberVals[1] ?? null;
+      previous = numberVals[2] ?? null;
+    }
 
     if (actual !== null || forecast !== null) {
       events.push({ date: currentDate, eventDB: mappedName, actual, consensus: forecast, previous });

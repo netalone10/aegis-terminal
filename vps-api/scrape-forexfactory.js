@@ -95,22 +95,67 @@ function parseNumber(text) {
   return isNaN(num) ? null : num;
 }
 
-async function scrapeForexFactory() {
-  console.log(`[${new Date().toISOString()}] Starting ForexFactory scrape...`);
+// Parse CLI args: node scrape-forexfactory.js [startDate] [endDate]
+// Examples:
+//   node scrape-forexfactory.js                          → current week
+//   node scrape-forexfactory.js 2026-07-06 2026-07-13     → specific range
+//   node scrape-forexfactory.js this                     → this week
+//   node scrape-forexfactory.js next                     → next week
 
-  // Get this week's Monday
+function parseArgs() {
+  const args = process.argv.slice(2);
   const now = new Date();
   const day = now.getUTCDay();
-  const monday = new Date(now);
-  monday.setUTCDate(now.getUTCDate() - ((day + 6) % 7));
-  monday.setUTCHours(0, 0, 0, 0);
-  const weekStart = monday.toISOString().split('T')[0];
 
-  console.log(`Week starting: ${weekStart}`);
+  if (args.length === 0 || args[0] === 'this') {
+    // Current week (Mon-Fri)
+    const monday = new Date(now);
+    monday.setUTCDate(now.getUTCDate() - ((day + 6) % 7));
+    monday.setUTCHours(0, 0, 0, 0);
+    const friday = new Date(monday);
+    friday.setUTCDate(monday.getUTCDate() + 4);
+    return {
+      start: monday.toISOString().split('T')[0],
+      end: friday.toISOString().split('T')[0],
+    };
+  }
+
+  if (args[0] === 'next') {
+    const nextMon = new Date(now);
+    nextMon.setUTCDate(now.getUTCDate() + ((8 - day) % 7 || 7));
+    nextMon.setUTCHours(0, 0, 0, 0);
+    const fri = new Date(nextMon);
+    fri.setUTCDate(nextMon.getUTCDate() + 4);
+    return {
+      start: nextMon.toISOString().split('T')[0],
+      end: fri.toISOString().split('T')[0],
+    };
+  }
+
+  // Explicit date range
+  return { start: args[0], end: args[1] || args[0] };
+}
+
+// Format date for FF URL: "2026-07-06" → "jul6.2026"
+function formatDateForFF(dateStr) {
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const d = new Date(dateStr + 'T00:00:00Z');
+  return months[d.getUTCMonth()] + d.getUTCDate() + '.' + d.getUTCFullYear();
+}
+
+async function scrapeForexFactory() {
+  const { start: weekStart, end: weekEnd } = parseArgs();
+  console.log(`[${new Date().toISOString()}] Starting ForexFactory scrape...`);
+  console.log(`Range: ${weekStart} to ${weekEnd}`);
 
   try {
+    // Build FF URL with date range
+    const ffRange = formatDateForFF(weekStart) + '-' + formatDateForFF(weekEnd);
+    const ffUrl = `https://www.forexfactory.com/calendar?range=${ffRange}`;
+    console.log(`Fetching: ${ffUrl}`);
+
     // Fetch FF calendar page
-    const response = await axios.get('https://www.forexfactory.com/calendar', {
+    const response = await axios.get(ffUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

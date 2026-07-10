@@ -100,8 +100,45 @@ interface SignalStats {
   ready: boolean
 }
 
+/* ── XAU Engine types ──────────────────────────────────────────────── */
+interface XauSignal {
+  id: number
+  direction: 'LONG' | 'SHORT'
+  confidence: number
+  entry_zone: string
+  entry_price: number | null
+  sl: number
+  tp1: number | null
+  tp2: number | null
+  tp3: number | null
+  rr: number
+  phase: string
+  m5_triggers: {
+    mss: boolean
+    fvg: boolean
+    ob: boolean
+  }
+  key_levels: {
+    resistance: number[]
+    support: number[]
+  }
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+interface XauStats {
+  total: number
+  active: number
+  wins: number
+  losses: number
+  win_rate: number
+  open: number
+  expired: number
+}
+
 /* ── constants ─────────────────────────────────────────────────────── */
-const SYMBOLS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD']
+import { SYMBOLS } from '../../lib/config'
 
 const WEEK_TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   HIGH: { bg: 'rgba(239,68,68,.15)', text: '#f87171', border: 'rgba(239,68,68,.3)' },
@@ -245,6 +282,28 @@ export default function Signals() {
   const { data: stats } = useQuery<SignalStats>({
     queryKey: ['signal-stats', symbol],
     queryFn: () => api(`/api/signals/history/${symbol}/stats`),
+    refetchInterval: 60_000,
+    retry: false,
+  })
+
+  /* ── XAU Engine data ────────────────────────────────────────────── */
+  const { data: xauLatest, isLoading: xauLoading } = useQuery<{ signal: XauSignal | null }>({
+    queryKey: ['xau-signal-latest'],
+    queryFn: () => api('/api/xau/signals/latest'),
+    refetchInterval: 10_000,
+    retry: false,
+  })
+
+  const { data: xauHistory = [] } = useQuery<XauSignal[]>({
+    queryKey: ['xau-signal-history'],
+    queryFn: () => api('/api/xau/signals/history?limit=10'),
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
+  const { data: xauStats } = useQuery<XauStats>({
+    queryKey: ['xau-signal-stats'],
+    queryFn: () => api('/api/xau/signals/stats'),
     refetchInterval: 60_000,
     retry: false,
   })
@@ -848,6 +907,350 @@ export default function Signals() {
           </table>
         </div>
       </div>
+
+      {/* ═══ XAU ENGINE SIGNALS ═══ */}
+      {(xauLoading || xauLatest || xauHistory.length > 0 || xauStats) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Section header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Target size={16} style={{ color: '#f59e0b' }} />
+            <span style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>XAU Engine Signals</span>
+            {xauLoading && (
+              <span style={{ fontSize: 10, color: '#64748b' }}>Loading...</span>
+            )}
+          </div>
+
+          {/* ── Stats Bar ── */}
+          {xauStats && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))',
+              gap: 10,
+              background: '#12121a',
+              border: '1px solid #1e1e2e',
+              borderRadius: 10,
+              padding: '12px 16px',
+            }}>
+              {[
+                { label: 'Total', value: xauStats.total, color: '#e2e8f0' },
+                { label: 'Active', value: xauStats.active, color: '#22c55e' },
+                { label: 'Wins', value: xauStats.wins, color: '#22c55e' },
+                { label: 'Losses', value: xauStats.losses, color: '#ef4444' },
+                { label: 'Win Rate', value: `${xauStats.win_rate}%`, color: xauStats.win_rate >= 50 ? '#22c55e' : '#ef4444' },
+                { label: 'Open', value: xauStats.open, color: '#f59e0b' },
+              ].map(item => (
+                <div key={item.label} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: item.color, fontFamily: 'var(--font-mono)' }}>
+                    {item.value}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{item.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Current Signal Card ── */}
+          {xauLatest && (
+            <div style={{
+              background: '#12121a',
+              border: '1px solid #1e1e2e',
+              borderRadius: 10,
+              overflow: 'hidden',
+            }}>
+              {xauLatest.signal ? (
+                <>
+                  {/* Direction banner */}
+                  <div style={{
+                    padding: '14px 18px',
+                    display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+                    background: xauLatest.signal.direction === 'LONG' ? 'rgba(34,197,94,.06)' : 'rgba(239,68,68,.06)',
+                    borderBottom: '1px solid #1e1e2e',
+                  }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '4px 12px', borderRadius: 6,
+                      background: xauLatest.signal.direction === 'LONG' ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)',
+                      border: `1px solid ${xauLatest.signal.direction === 'LONG' ? 'rgba(34,197,94,.3)' : 'rgba(239,68,68,.3)'}`,
+                    }}>
+                      {xauLatest.signal.direction === 'LONG'
+                        ? <TrendingUp size={14} style={{ color: '#22c55e' }} />
+                        : <TrendingDown size={14} style={{ color: '#ef4444' }} />}
+                      <span style={{
+                        fontWeight: 800, fontSize: 13,
+                        color: xauLatest.signal.direction === 'LONG' ? '#22c55e' : '#ef4444',
+                      }}>
+                        {xauLatest.signal.direction}
+                      </span>
+                    </div>
+
+                    {/* Confidence */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>CONF</span>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700,
+                        color: scoreColor(xauLatest.signal.confidence),
+                        fontFamily: 'var(--font-mono)',
+                      }}>
+                        {xauLatest.signal.confidence}%
+                      </span>
+                    </div>
+
+                    {/* Phase badge */}
+                    <span style={{
+                      padding: '3px 8px', borderRadius: 4,
+                      background: 'rgba(245,158,11,.1)',
+                      border: '1px solid rgba(245,158,11,.2)',
+                      fontSize: 10, fontWeight: 600, color: '#f59e0b',
+                      textTransform: 'uppercase',
+                    }}>
+                      {xauLatest.signal.phase}
+                    </span>
+
+                    {/* Created time */}
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: '#64748b' }}>
+                      {timeAgo(xauLatest.signal.created_at)}
+                    </span>
+                  </div>
+
+                  {/* Signal details */}
+                  <div style={{ padding: 14 }}>
+                    {/* Price levels */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 12, marginBottom: 14 }}>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>Entry Zone</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', fontFamily: 'var(--font-mono)' }}>
+                          {xauLatest.signal.entry_zone}
+                        </div>
+                        {xauLatest.signal.entry_price && (
+                          <div style={{ fontSize: 11, color: '#f59e0b', fontFamily: 'var(--font-mono)' }}>
+                            {fmtPrice(xauLatest.signal.entry_price)}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>Stop Loss</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#ef4444', fontFamily: 'var(--font-mono)' }}>
+                          {fmtPrice(xauLatest.signal.sl)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>TP1</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#22c55e', fontFamily: 'var(--font-mono)' }}>
+                          {fmtPrice(xauLatest.signal.tp1)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>TP2</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#22c55e', fontFamily: 'var(--font-mono)' }}>
+                          {fmtPrice(xauLatest.signal.tp2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>TP3</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#22c55e', fontFamily: 'var(--font-mono)' }}>
+                          {fmtPrice(xauLatest.signal.tp3)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>R:R</div>
+                        <div style={{
+                          fontSize: 12, fontWeight: 700,
+                          color: xauLatest.signal.rr >= 2 ? '#22c55e' : '#f59e0b',
+                          fontFamily: 'var(--font-mono)',
+                        }}>
+                          {xauLatest.signal.rr ? xauLatest.signal.rr.toFixed(1) : '—'}:1
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* M5 Entry Triggers */}
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        M5 Entry Triggers
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {[
+                          { label: 'MSS', value: xauLatest.signal.m5_triggers.mss },
+                          { label: 'FVG', value: xauLatest.signal.m5_triggers.fvg },
+                          { label: 'OB', value: xauLatest.signal.m5_triggers.ob },
+                        ].map(t => (
+                          <span key={t.label} style={{
+                            display: 'flex', alignItems: 'center', gap: 4,
+                            padding: '3px 8px', borderRadius: 4,
+                            background: t.value ? 'rgba(34,197,94,.1)' : 'rgba(100,116,139,.08)',
+                            border: `1px solid ${t.value ? 'rgba(34,197,94,.25)' : 'rgba(100,116,139,.15)'}`,
+                            fontSize: 10, fontWeight: 600,
+                            color: t.value ? '#22c55e' : '#64748b',
+                          }}>
+                            {t.value ? <CheckCircle size={10} /> : <span style={{ width: 10, height: 10, border: '1px solid #64748b', borderRadius: 2 }} />}
+                            {t.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Key Levels */}
+                    <div>
+                      <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Key Levels
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                        {xauLatest.signal.key_levels.resistance.length > 0 && (
+                          <div>
+                            <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 600, marginRight: 6 }}>Resistance</span>
+                            {xauLatest.signal.key_levels.resistance.map((r, i) => (
+                              <span key={i} style={{
+                                fontSize: 10, fontWeight: 600, color: '#ef4444',
+                                fontFamily: 'var(--font-mono)',
+                                marginRight: 8,
+                              }}>
+                                {fmtPrice(r)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {xauLatest.signal.key_levels.support.length > 0 && (
+                          <div>
+                            <span style={{ fontSize: 10, color: '#22c55e', fontWeight: 600, marginRight: 6 }}>Support</span>
+                            {xauLatest.signal.key_levels.support.map((s, i) => (
+                              <span key={i} style={{
+                                fontSize: 10, fontWeight: 600, color: '#22c55e',
+                                fontFamily: 'var(--font-mono)',
+                                marginRight: 8,
+                              }}>
+                                {fmtPrice(s)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: 16, fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
+                  No active XAU signal — waiting for engine trigger
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── XAU Signal History ── */}
+          {xauHistory.length > 0 && (
+            <div style={{
+              background: '#12121a',
+              border: '1px solid #1e1e2e',
+              borderRadius: 10,
+              overflow: 'hidden',
+            }}>
+              <div style={{ padding: '10px 16px', borderBottom: '1px solid #1e1e2e' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Clock size={14} style={{ color: '#f59e0b' }} />
+                  <span style={{ fontWeight: 600, fontSize: 12, color: '#e2e8f0' }}>XAU History</span>
+                  <span style={{
+                    fontSize: 10, color: '#64748b',
+                    padding: '2px 8px', borderRadius: 4,
+                    background: 'rgba(100,116,139,.1)',
+                  }}>
+                    {xauHistory.length} signals
+                  </span>
+                </div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #1e1e2e' }}>
+                      {['Time', 'Direction', 'Confidence', 'Entry', 'SL', 'TP', 'R:R', 'Status'].map(h => (
+                        <th key={h} style={{
+                          textAlign: h === 'Time' ? 'left' : 'right',
+                          padding: '8px 12px', fontSize: 10,
+                          color: '#64748b', fontWeight: 600,
+                          textTransform: 'uppercase', letterSpacing: '0.04em',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {xauHistory.map(sig => (
+                      <tr key={sig.id} style={{ borderBottom: '1px solid rgba(30,30,46,.5)' }}>
+                        <td style={{ padding: '7px 12px', fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>
+                          {timeAgo(sig.created_at)}
+                        </td>
+                        <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700,
+                            padding: '2px 6px', borderRadius: 3,
+                            background: sig.direction === 'LONG' ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)',
+                            color: sig.direction === 'LONG' ? '#22c55e' : '#ef4444',
+                          }}>
+                            {sig.direction}
+                          </span>
+                        </td>
+                        <td style={{
+                          padding: '7px 12px', textAlign: 'right',
+                          fontSize: 11, fontWeight: 600,
+                          color: scoreColor(sig.confidence),
+                          fontFamily: 'var(--font-mono)',
+                        }}>
+                          {sig.confidence}%
+                        </td>
+                        <td style={{
+                          padding: '7px 12px', textAlign: 'right',
+                          fontSize: 12, fontWeight: 600, color: '#e2e8f0',
+                          fontFamily: 'var(--font-mono)',
+                        }}>
+                          {fmtPrice(sig.entry_price)}
+                        </td>
+                        <td style={{
+                          padding: '7px 12px', textAlign: 'right',
+                          fontSize: 12, color: '#ef4444',
+                          fontFamily: 'var(--font-mono)',
+                        }}>
+                          {fmtPrice(sig.sl)}
+                        </td>
+                        <td style={{
+                          padding: '7px 12px', textAlign: 'right',
+                          fontSize: 12, color: '#22c55e',
+                          fontFamily: 'var(--font-mono)',
+                        }}>
+                          {fmtPrice(sig.tp1)}
+                        </td>
+                        <td style={{
+                          padding: '7px 12px', textAlign: 'right',
+                          fontSize: 12, fontWeight: 700,
+                          color: sig.rr >= 2 ? '#22c55e' : '#f59e0b',
+                          fontFamily: 'var(--font-mono)',
+                        }}>
+                          {sig.rr ? sig.rr.toFixed(1) : '—'}:1
+                        </td>
+                        <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700,
+                            padding: '2px 6px', borderRadius: 3,
+                            background: sig.status === 'active' ? 'rgba(34,197,94,.12)'
+                              : sig.status === 'tp_hit' ? 'rgba(59,130,246,.12)'
+                              : sig.status === 'sl_hit' ? 'rgba(239,68,68,.12)'
+                              : 'rgba(100,116,139,.1)',
+                            color: sig.status === 'active' ? '#22c55e'
+                              : sig.status === 'tp_hit' ? '#3b82f6'
+                              : sig.status === 'sl_hit' ? '#ef4444'
+                              : '#64748b',
+                          }}>
+                            {sig.status === 'tp_hit' ? 'TP ✓' : sig.status === 'sl_hit' ? 'SL ✗' : sig.status?.toUpperCase() ?? '—'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Disclaimer */}
       <div style={{

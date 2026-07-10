@@ -5,43 +5,38 @@ import {
   Clock, Wifi, WifiOff, Zap, Target, BarChart3, Shield,
 } from 'lucide-react'
 import { api } from '../../lib/api'
+import { KILL_ZONES } from '../../lib/config'
 import { MacroWidget } from '../macro/MacroWidget'
 
 /* ── Kill Zone Helpers ── */
 
-function isKillZoneActive(): boolean {
+function getNowMins(): number {
   const now = new Date()
-  const mins = now.getUTCHours() * 60 + now.getUTCMinutes()
-  return (mins >= 420 && mins <= 600) || (mins >= 720 && mins <= 900) || (mins >= 900 && mins <= 1020)
+  return now.getUTCHours() * 60 + now.getUTCMinutes()
+}
+
+function isKillZoneActive(): boolean {
+  const mins = getNowMins()
+  return KILL_ZONES.some(z => mins >= z.startMin && mins <= z.endMin)
 }
 
 function activeKillZoneLabel(): string {
-  const utcH = new Date().getUTCHours()
-  if (utcH >= 0 && utcH < 3) return 'Tokyo Open'
-  if (utcH >= 7 && utcH < 10) return 'London Open'
-  if (utcH >= 12 && utcH < 15) return 'NY Open'
-  if (utcH >= 15 && utcH < 17) return 'London Close'
-  return 'No Active Kill Zone'
+  const mins = getNowMins()
+  const active = KILL_ZONES.find(z => mins >= z.startMin && mins <= z.endMin)
+  return active ? active.name : 'No Active Kill Zone'
 }
 
 function nextKillZoneCountdown(): string {
-  const now = new Date()
-  const utcH = now.getUTCHours()
-  const utcM = now.getUTCMinutes()
-  const mins = utcH * 60 + utcM
-  const zones = [
-    { start: 0, label: 'Tokyo' },
-    { start: 420, label: 'London Open' },
-    { start: 720, label: 'NY Open' },
-    { start: 900, label: 'London Close' },
-  ]
-  for (const z of zones) {
-    if (mins < z.start) {
-      const diff = z.start - mins
-      return `${Math.floor(diff / 60)}h ${diff % 60}m → ${z.label}`
+  const mins = getNowMins()
+  for (const z of KILL_ZONES) {
+    if (mins < z.startMin) {
+      const diff = z.startMin - mins
+      return Math.floor(diff / 60) + 'h ' + (diff % 60) + 'm \u2192 ' + z.name
     }
   }
-  return 'Next: Tokyo 00:00 UTC'
+  const first = KILL_ZONES[0]
+  const diff = (24 * 60 - mins) + first.startMin
+  return 'Next: ' + first.name + ' ' + Math.floor(diff / 60) + 'h ' + (diff % 60) + 'm'
 }
 
 /* ── Market Status Helpers ── */
