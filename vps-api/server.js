@@ -2726,6 +2726,79 @@ app.get('/api/vps/services', (req, res) => {
   res.json({ status: 'ok', data: getServices() });
 });
 
+
+// ─── Crypto Bot Status ───────────────────────────────────────
+const fs = require('fs');
+const BOT_STATUS_FILE = '/home/ubuntu/projects/aegis-terminal/vps-api/bot_status.json';
+
+app.get('/api/bot/status', async (req, res) => {
+  try {
+    if (fs.existsSync(BOT_STATUS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(BOT_STATUS_FILE, 'utf8'));
+      res.json({ status: 'ok', ...data });
+    } else {
+      res.json({ status: 'ok', state: 'offline', message: 'Bot not running' });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/bot/positions', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT symbol, bias, confidence, entry_price, stop_loss, take_profit,
+              risk_reward, status, created_at
+       FROM crypto_signals WHERE status = 'active'
+       ORDER BY created_at DESC LIMIT 10`
+    );
+    res.json({ status: 'ok', positions: result.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/bot/signals', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const result = await pool.query(
+      `SELECT id, symbol, bias, confidence, entry_price, stop_loss, take_profit,
+              risk_reward, status, hit_tp, hit_sl, pnl_pct, created_at, closed_at
+       FROM crypto_signals ORDER BY created_at DESC LIMIT $1`,
+      [limit]
+    );
+    res.json({ status: 'ok', signals: result.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/bot/performance', async (req, res) => {
+  try {
+    const total = await pool.query('SELECT COUNT(*) as count FROM crypto_signals');
+    const active = await pool.query("SELECT COUNT(*) as count FROM crypto_signals WHERE status = 'active'");
+    const hitTp = await pool.query("SELECT COUNT(*) as count FROM crypto_signals WHERE hit_tp = true");
+    const hitSl = await pool.query("SELECT COUNT(*) as count FROM crypto_signals WHERE hit_sl = true");
+    const avgPnl = await pool.query("SELECT AVG(pnl_pct) as avg_pnl FROM crypto_signals WHERE pnl_pct IS NOT NULL");
+    const recentPnl = await pool.query(
+      "SELECT SUM(pnl_pct) as total_pnl FROM crypto_signals WHERE pnl_pct IS NOT NULL AND created_at > NOW() - INTERVAL '24 hours'"
+    );
+    res.json({
+      status: 'ok',
+      performance: {
+        total: parseInt(total.rows[0].count),
+        active: parseInt(active.rows[0].count),
+        hit_tp: parseInt(hitTp.rows[0].count),
+        hit_sl: parseInt(hitSl.rows[0].count),
+        avg_pnl: parseFloat(avgPnl.rows[0].avg_pnl) || 0,
+        total_pnl_24h: parseFloat(recentPnl.rows[0].total_pnl) || 0,
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // WebSocket: Live price stream for frontend
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Aegis Terminal API v2 running on port ${PORT}`);

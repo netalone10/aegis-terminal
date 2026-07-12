@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase, Zap, BarChart3, Bitcoin, Server } from 'lucide-react'
+import { Home, CandlestickChart, Crosshair, Timer, Calendar, ScanLine, BookOpen, DollarSign, Newspaper, Building2, Briefcase, Zap, BarChart3, Bitcoin, Server, Activity } from 'lucide-react'
 
 const navSections = [
   {
@@ -55,6 +55,7 @@ const navSections = [
       { to: '/crypto', label: 'Crypto Screener', icon: Bitcoin },
       { to: '/crypto/signals', label: 'Crypto Signals', icon: Zap },
       { to: '/crypto/scalp', label: 'BTC Scalp', icon: Zap },
+      { to: '/crypto/bot', label: 'Bot Monitor', icon: Activity },
       { to: '/crypto/performance', label: 'Performance', icon: BarChart3 },
     ],
   },

@@ -25,6 +25,7 @@ import { CryptoSignals } from './pages/CryptoSignals'
 import { CryptoDetail } from './pages/CryptoDetail'
 import { CryptoPerformance } from './pages/CryptoPerformance'
 import { BtcScalpDashboard } from './pages/BtcScalpDashboard'
+import { CryptoBotMonitor } from './pages/CryptoBotMonitor'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,6 +69,7 @@ function AppShell() {
             <Route path="/crypto/:symbol" element={<CryptoDetail />} />
             <Route path="/crypto/performance" element={<CryptoPerformance />} />
             <Route path="/crypto/scalp" element={<BtcScalpDashboard />} />
+            <Route path="/crypto/bot" element={<CryptoBotMonitor />} />
           </Routes>
         </main>
         <footer style={{
