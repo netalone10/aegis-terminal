@@ -32,6 +32,7 @@ export const VPS_PREFIXES = [
   '/api/fundamental',
   '/api/mt5',
   '/api/vps',
+  '/api/bot',
 ] as const
 
 // ── Symbols ───────────────────────────────────────────────────

@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { Activity, TrendingUp, TrendingDown, Zap, Clock, Target, BarChart3 } from 'lucide-react'
+import { Activity, TrendingUp, Zap, Clock, Target, BarChart3 } from 'lucide-react'
 import { api } from '../lib/api'
 
-/* ── Helpers (same pattern as other pages) ── */
+/* ── Helpers ── */
 
 function fmt(p: any, decimals = 2): string {
   if (!p) return '—'
@@ -10,24 +10,10 @@ function fmt(p: any, decimals = 2): string {
   return isNaN(n) ? '—' : n.toFixed(decimals)
 }
 
-function fmtPnl(pnl: any): string {
-  if (pnl === null || pnl === undefined) return '—'
-  const n = typeof pnl === 'string' ? parseFloat(pnl) : pnl
-  return isNaN(n) ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
-}
-
-function pnlColor(pnl: any): string {
-  if (pnl === null || pnl === undefined) return 'var(--kt-muted)'
-  const n = typeof pnl === 'string' ? parseFloat(pnl) : pnl
-  return n >= 0 ? 'var(--kt-up)' : 'var(--kt-dn)'
-}
-
 function stateBadge(state: string): { bg: string; fg: string; label: string } {
   switch (state) {
     case 'scanning': return { bg: 'rgba(255,191,0,.15)', fg: '#ffbf00', label: 'SCANNING' }
-    case 'holding': return { bg: 'rgba(70,201,127,.15)', fg: '#46c97f', label: 'HOLDING' }
-    case 'entered': return { bg: 'rgba(70,201,127,.15)', fg: '#46c97f', label: 'ENTERED' }
-    case 'idle': return { bg: 'rgba(107,114,128,.15)', fg: '#6b7280', label: 'IDLE' }
+    case 'signal': return { bg: 'rgba(70,201,127,.15)', fg: '#46c97f', label: 'SIGNAL' }
     case 'no_signal': return { bg: 'rgba(107,114,128,.15)', fg: '#6b7280', label: 'NO SIGNAL' }
     case 'error': return { bg: 'rgba(255,77,79,.15)', fg: '#ff4d4f', label: 'ERROR' }
     case 'offline': return { bg: 'rgba(255,77,79,.15)', fg: '#ff4d4f', label: 'OFFLINE' }
@@ -46,7 +32,13 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hr / 24)}d ago`
 }
 
-/* ── Stat Card (same pattern as CryptoPerformance) ── */
+function thresholdColor(val: number): string {
+  if (val >= 95) return 'var(--kt-up)'
+  if (val >= 90) return 'var(--kt-gold)'
+  return 'var(--kt-text)'
+}
+
+/* ── Stat Card ── */
 
 function StatCard({ label, value, color, icon }: { label: string; value: string | number; color?: string; icon?: React.ReactNode }) {
   return (
@@ -63,34 +55,19 @@ function StatCard({ label, value, color, icon }: { label: string; value: string 
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   CRYPTO BOT MONITOR PAGE
+   CRYPTO SIGNAL SCANNER PAGE
    ═══════════════════════════════════════════════════════════════════ */
 
 export function CryptoBotMonitor() {
-  const { data: statusData } = useQuery<any>({
+  const { data: statusData, isLoading } = useQuery<any>({
     queryKey: ['bot-status'],
     queryFn: () => api('/api/bot/status'),
-    refetchInterval: 10_000,
-    retry: false,
-  })
-
-  const { data: perfData } = useQuery<any>({
-    queryKey: ['bot-performance'],
-    queryFn: () => api('/api/bot/performance'),
-    staleTime: 60_000,
-    retry: false,
-  })
-
-  const { data: signalsData } = useQuery<any>({
-    queryKey: ['bot-signals'],
-    queryFn: () => api('/api/bot/signals?limit=10'),
-    staleTime: 30_000,
+    refetchInterval: 15_000,
     retry: false,
   })
 
   const status = statusData || {}
-  const perf = perfData?.performance || {}
-  const signals = signalsData?.signals || []
+  const signals = status.signals || []
   const badge = stateBadge(status.state || 'offline')
 
   return (
@@ -100,7 +77,7 @@ export function CryptoBotMonitor() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Activity size={20} style={{ color: 'var(--kt-gold)' }} />
           <h1 style={{ margin: 0, fontSize: 'var(--xl)', fontWeight: 700, color: 'var(--kt-text)' }}>
-            Crypto Bot Monitor
+            Crypto Signal Scanner
           </h1>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -118,135 +95,85 @@ export function CryptoBotMonitor() {
         </div>
       </div>
 
-      {/* Status Card */}
-      <div className="kt-card" style={{ overflow: 'hidden' }}>
-        <div className="kt-card-pad" style={{ padding: '14px 18px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-            <div>
-              <div style={{ fontSize: 9, color: 'var(--kt-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>Symbol</div>
-              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
-                {status.symbol || '—'}
-              </div>
-            </div>
-
-            {status.state === 'holding' && (
-              <>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9, color: 'var(--kt-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>Entry</div>
-                  <div style={{ fontSize: 15, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--kt-gold)' }}>
-                    ${fmt(status.entry_price)}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9, color: 'var(--kt-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>Mark</div>
-                  <div style={{ fontSize: 15, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
-                    ${fmt(status.mark_price)}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9, color: 'var(--kt-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>PnL</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-mono)', color: pnlColor(status.unrealised_pnl) }}>
-                    {status.unrealised_pnl ? `${status.unrealised_pnl >= 0 ? '+' : ''}${fmt(status.unrealised_pnl)}` : '—'}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9, color: 'var(--kt-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>Leverage</div>
-                  <div style={{ fontSize: 15, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
-                    {status.leverage || '—'}x
-                  </div>
-                </div>
-              </>
-            )}
-
-            {status.state === 'entered' && (
-              <>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9, color: 'var(--kt-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>Threshold</div>
-                  <div style={{ fontSize: 15, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
-                    {status.threshold?.toFixed(1)}%
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9, color: 'var(--kt-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>Win Prob</div>
-                  <div style={{ fontSize: 15, fontFamily: 'var(--font-mono)', color: 'var(--kt-text)' }}>
-                    {status.win_probability?.toFixed(1)}%
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+      {/* Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        <StatCard label="Signals" value={status.count || 0} color="var(--kt-gold)" icon={<Target size={12} />} />
+        <StatCard label="Scanned" value="455" icon={<BarChart3 size={12} />} />
+        <StatCard label="Threshold" value="≥70%" icon={<TrendingUp size={12} />} />
+        <StatCard label="Last Scan" value={status.last_scan ? timeAgo(status.last_scan + ':00').replace('ago', '') : '—'} icon={<Clock size={12} />} />
       </div>
 
-      {/* Performance Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
-        <StatCard label="Total" value={perf.total || 0} icon={<Zap size={12} />} />
-        <StatCard label="Active" value={perf.active || 0} color="var(--kt-gold)" icon={<Activity size={12} />} />
-        <StatCard label="Hit TP" value={perf.hit_tp || 0} color="var(--kt-up)" icon={<TrendingUp size={12} />} />
-        <StatCard label="Hit SL" value={perf.hit_sl || 0} color="var(--kt-dn)" icon={<TrendingDown size={12} />} />
-        <StatCard label="Avg PnL" value={`${fmt(perf.avg_pnl)}%`} color={pnlColor(perf.avg_pnl)} icon={<BarChart3 size={12} />} />
-        <StatCard label="24h PnL" value={`${fmt(perf.total_pnl_24h)}%`} color={pnlColor(perf.total_pnl_24h)} icon={<Clock size={12} />} />
-      </div>
-
-      {/* Recent Signals */}
+      {/* Signals Table */}
       <div className="kt-card" style={{ overflow: 'hidden' }}>
         <div className="kt-card-pad" style={{ padding: '14px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <Target size={14} style={{ color: 'var(--kt-gold)' }} />
-            <span style={{ fontSize: 'var(--md)', fontWeight: 600, color: 'var(--kt-text)' }}>Recent Signals</span>
+            <Zap size={14} style={{ color: 'var(--kt-gold)' }} />
+            <span style={{ fontSize: 'var(--md)', fontWeight: 600, color: 'var(--kt-text)' }}>
+              Active Signals {signals.length > 0 && <span style={{ color: 'var(--kt-dim)', fontWeight: 400 }}>({signals.length})</span>}
+            </span>
           </div>
 
-          {signals.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'var(--kt-muted)', padding: 20, fontSize: 'var(--sm)' }}>
-              No signals yet
+          {isLoading ? (
+            <div style={{ textAlign: 'center', color: 'var(--kt-muted)', padding: 30, fontSize: 'var(--sm)' }}>
+              Loading...
+            </div>
+          ) : signals.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--kt-muted)', padding: 30, fontSize: 'var(--sm)' }}>
+              No signals found. Next scan in 15 min.
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--xs)' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--kt-border)' }}>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>#</th>
                     <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Symbol</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Bias</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Conf</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Entry</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>SL</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>TP</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>PnL</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Status</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Price</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Threshold</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Win Prob</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Bull / Bear</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Indicators</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {signals.map((s: any) => {
-                    const sBadge = stateBadge(s.status)
-                    return (
-                      <tr key={s.id} style={{ borderBottom: '1px solid var(--kt-border)' }}>
-                        <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--kt-text)' }}>{s.symbol}</td>
-                        <td style={{ padding: '10px 12px', color: s.bias === 'bullish' ? 'var(--kt-up)' : 'var(--kt-dn)', fontWeight: 600 }}>
-                          {s.bias === 'bullish' ? '🟢 LONG' : '🔴 SHORT'}
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{s.confidence}%</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-gold)' }}>${fmt(s.entry_price)}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-dn)' }}>${fmt(s.stop_loss)}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-up)' }}>${fmt(s.take_profit)}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: pnlColor(s.pnl_pct) }}>
-                          {fmtPnl(s.pnl_pct)}
-                        </td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <span style={{
-                            fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                            background: sBadge.bg, color: sBadge.fg, letterSpacing: 0.5,
-                          }}>
-                            {sBadge.label}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {signals.map((s: any, i: number) => (
+                    <tr key={s.symbol} style={{ borderBottom: '1px solid var(--kt-border)', background: i === 0 ? 'rgba(70,201,127,.04)' : 'transparent' }}>
+                      <td style={{ padding: '10px 12px', color: 'var(--kt-dim)', fontWeight: 500 }}>
+                        {i + 1}
+                      </td>
+                      <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--kt-text)' }}>
+                        {s.symbol}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-gold)' }}>
+                        ${fmt(s.price, 4)}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: thresholdColor(s.threshold) }}>
+                        {fmt(s.threshold, 1)}%
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: thresholdColor(s.win_probability) }}>
+                        {fmt(s.win_probability, 1)}%
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
+                        <span style={{ color: 'var(--kt-up)' }}>{s.bullish}</span>
+                        <span style={{ color: 'var(--kt-dim)', margin: '0 4px' }}>/</span>
+                        <span style={{ color: 'var(--kt-dn)' }}>{s.bearish}</span>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-dim)' }}>
+                        {s.total_indicators}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           )}
         </div>
+      </div>
+
+      {/* Info */}
+      <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', textAlign: 'center', padding: 8 }}>
+        36 indicators across trend, momentum, volatility, and volume. Threshold ≥70%, Win Probability ≥80%.
+        Scans every 15 minutes. 455 USDT-M perpetual futures.
       </div>
     </div>
   )
