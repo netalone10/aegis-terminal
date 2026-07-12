@@ -126,40 +126,48 @@ export function CryptoBotMonitor() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--xs)' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--kt-border)' }}>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>#</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Symbol</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Price</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Threshold</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Win Prob</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Bull / Bear</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Indicators</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'left', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>#</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'left', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Symbol</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Entry</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>SL</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>TP</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>R:R</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Threshold</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Win Prob</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--kt-dim)', fontWeight: 500, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Bull/Bear</th>
                   </tr>
                 </thead>
                 <tbody>
                   {signals.map((s: any, i: number) => (
                     <tr key={s.symbol} style={{ borderBottom: '1px solid var(--kt-border)', background: i === 0 ? 'rgba(70,201,127,.04)' : 'transparent' }}>
-                      <td style={{ padding: '10px 12px', color: 'var(--kt-dim)', fontWeight: 500 }}>
+                      <td style={{ padding: '10px 10px', color: 'var(--kt-dim)', fontWeight: 500 }}>
                         {i + 1}
                       </td>
-                      <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--kt-text)' }}>
+                      <td style={{ padding: '10px 10px', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--kt-text)' }}>
                         {s.symbol}
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-gold)' }}>
-                        ${fmt(s.price, 4)}
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--kt-gold)' }}>
+                        ${fmt(s.entry, 4)}
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: thresholdColor(s.threshold) }}>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-dn)' }}>
+                        ${fmt(s.sl, 4)}
+                      </td>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-up)' }}>
+                        ${fmt(s.tp, 4)}
+                      </td>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: s.rr_ratio >= 2 ? 'var(--kt-up)' : s.rr_ratio >= 1.5 ? 'var(--kt-gold)' : 'var(--kt-text)' }}>
+                        {s.rr_ratio ? `1:${s.rr_ratio}` : '—'}
+                      </td>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: thresholdColor(s.threshold) }}>
                         {fmt(s.threshold, 1)}%
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: thresholdColor(s.win_probability) }}>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: thresholdColor(s.win_probability) }}>
                         {fmt(s.win_probability, 1)}%
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
+                      <td style={{ padding: '10px 10px', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
                         <span style={{ color: 'var(--kt-up)' }}>{s.bullish}</span>
-                        <span style={{ color: 'var(--kt-dim)', margin: '0 4px' }}>/</span>
+                        <span style={{ color: 'var(--kt-dim)', margin: '0 3px' }}>/</span>
                         <span style={{ color: 'var(--kt-dn)' }}>{s.bearish}</span>
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--kt-dim)' }}>
-                        {s.total_indicators}
                       </td>
                     </tr>
                   ))}
@@ -172,8 +180,7 @@ export function CryptoBotMonitor() {
 
       {/* Info */}
       <div style={{ fontSize: 'var(--xs)', color: 'var(--kt-muted)', textAlign: 'center', padding: 8 }}>
-        36 indicators across trend, momentum, volatility, and volume. Threshold ≥70%, Win Probability ≥80%.
-        Scans every 15 minutes. 455 USDT-M perpetual futures.
+        36 indicators — trend, momentum, volatility, volume. Entry = current price. SL = 2x ATR below. TP = 3x ATR above. Threshold ≥70%, Win Prob ≥80%. Scans 455 USDT-M futures every 15 min.
       </div>
     </div>
   )
