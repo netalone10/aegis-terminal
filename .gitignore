@@ -8,3 +8,7 @@ dist/
 !.dev.vars.example
 .env*
 !.env.example
+__pycache__/
+*.pyc
+bot_status.json
+node_modules/

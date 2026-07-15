@@ -26,6 +26,7 @@ import { CryptoDetail } from './pages/CryptoDetail'
 import { CryptoPerformance } from './pages/CryptoPerformance'
 import { BtcScalpDashboard } from './pages/BtcScalpDashboard'
 import { CryptoBotMonitor } from './pages/CryptoBotMonitor'
+import EmailDashboard from './pages/EmailDashboard'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -70,6 +71,8 @@ function AppShell() {
             <Route path="/crypto/performance" element={<CryptoPerformance />} />
             <Route path="/crypto/scalp" element={<BtcScalpDashboard />} />
             <Route path="/crypto/bot" element={<CryptoBotMonitor />} />
+            <Route path="/mail" element={<EmailDashboard />} />
+            <Route path="/email" element={<EmailDashboard />} />
           </Routes>
         </main>
         <footer style={{
